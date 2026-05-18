@@ -1,8 +1,12 @@
 // ============================================================
-// QR BELL - Stripe Integration
+// QR BELL - Stripe Server-only Integration
+// Este archivo solo se usa en API routes (server-side)
 // ============================================================
 import Stripe from 'stripe'
 import type { SubscriptionPlan } from '@/types'
+
+// Re-exportar constantes de display desde plans.ts
+export { PLAN_DISPLAY } from './plans'
 
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2024-11-20.acacia',
@@ -21,36 +25,11 @@ export const STRIPE_PRICES: Record<SubscriptionPlan, { monthly?: string; yearly?
   },
 }
 
-export const PLAN_DISPLAY = {
-  free: {
-    name: 'Gratis',
-    price_monthly: 0,
-    price_yearly: 0,
-    description: 'Perfecto para empezar',
-    color: 'slate',
-  },
-  pro: {
-    name: 'Pro',
-    price_monthly: 999, // cents ARS or USD
-    price_yearly: 8990,
-    description: 'Para propiedades múltiples',
-    color: 'blue',
-  },
-  business: {
-    name: 'Business',
-    price_monthly: 2999,
-    price_yearly: 26990,
-    description: 'Para edificios y empresas',
-    color: 'purple',
-  },
-} as const
-
 export async function createOrRetrieveCustomer(
   userId: string,
   email: string,
   name?: string
 ): Promise<string> {
-  // Check for existing customer in Supabase
   const { createAdminClient } = await import('@/lib/supabase/server')
   const supabase = await createAdminClient()
 
@@ -64,7 +43,6 @@ export async function createOrRetrieveCustomer(
     return profile.stripe_customer_id
   }
 
-  // Create new Stripe customer
   const customer = await stripe.customers.create({
     email,
     name: name ?? undefined,
