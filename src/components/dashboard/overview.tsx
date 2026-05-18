@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
-import { Plus, Bell, Home, TrendingUp, Clock } from 'lucide-react'
+import { Plus, Bell, Home, TrendingUp, CreditCard } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { ROUTES } from '@/config/app'
 import { VISITOR_CATEGORY_LABELS, PROPERTY_STATUS_LABELS } from '@/types'
@@ -58,36 +58,56 @@ const STATUS_COLORS: Record<string, string> = {
   away: 'text-muted-foreground',
 }
 
+const PLAN_LABELS: Record<string, string> = {
+  free: 'Gratis',
+  pro: 'Pro',
+  business: 'Business',
+}
+
 export function DashboardOverview({ profile, properties, recentRings: initialRings }: Props) {
   const [rings, setRings] = useState(initialRings)
   const [liveToast, setLiveToast] = useState<{
     ring: RingEvent
     propertyName: string
   } | null>(null)
-  const supabase = createClient()
+
+  // FIX: usar ref para supabase y no incluirlo en dependencias
+  const supabaseRef = useRef(createClient())
+
+  // FIX: memorizar los IDs como string para evitar re-renders por referencia de array
+  const propertyIdsString = properties.map((p) => p.id).join(',')
 
   const playNotificationSound = useCallback(() => {
-    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
-    const oscillator = ctx.createOscillator()
-    const gain = ctx.createGain()
-    oscillator.connect(gain)
-    gain.connect(ctx.destination)
-    oscillator.frequency.setValueAtTime(800, ctx.currentTime)
-    oscillator.frequency.setValueAtTime(600, ctx.currentTime + 0.1)
-    gain.gain.setValueAtTime(0.5, ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
-    oscillator.start(ctx.currentTime)
-    oscillator.stop(ctx.currentTime + 0.4)
+    try {
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      const ctx = new AudioCtx()
+      const oscillator = ctx.createOscillator()
+      const gain = ctx.createGain()
+      oscillator.connect(gain)
+      gain.connect(ctx.destination)
+      oscillator.frequency.setValueAtTime(800, ctx.currentTime)
+      oscillator.frequency.setValueAtTime(600, ctx.currentTime + 0.1)
+      gain.gain.setValueAtTime(0.3, ctx.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4)
+      oscillator.start(ctx.currentTime)
+      oscillator.stop(ctx.currentTime + 0.4)
+    } catch {
+      // AudioContext no disponible, ignorar
+    }
   }, [])
 
   useEffect(() => {
-    if (!properties.length) return
+    // FIX: solo suscribir si hay propiedades
+    if (!propertyIdsString) return
 
-    const propertyIds = properties.map((p) => p.id)
-    const propertyMap = Object.fromEntries(properties.map((p) => [p.id, p.name]))
+    const propertyIds = propertyIdsString.split(',')
+    const propertyMap = Object.fromEntries(
+      properties.map((p) => [p.id, p.name])
+    )
 
+    const supabase = supabaseRef.current
     const channel = supabase
-      .channel('dashboard-rings')
+      .channel('dashboard-rings-' + propertyIdsString.slice(0, 20))
       .on(
         'postgres_changes',
         {
@@ -107,14 +127,16 @@ export function DashboardOverview({ profile, properties, recentRings: initialRin
 
           setLiveToast({ ring: newRing, propertyName: propName })
           setTimeout(() => setLiveToast(null), 5000)
-
           playNotificationSound()
         }
       )
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
-  }, [properties, playNotificationSound]) // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  // FIX: usar el string de IDs como dependencia, no el array de objetos
+  }, [propertyIdsString, playNotificationSound]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const totalRingsToday = rings.filter((r) => {
     const today = new Date()
@@ -138,7 +160,11 @@ export function DashboardOverview({ profile, properties, recentRings: initialRin
               Hola, {profile.full_name?.split(' ')[0] ?? 'Usuario'} 👋
             </h1>
             <p className="text-muted-foreground text-sm mt-1">
-              {new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {new Date().toLocaleDateString('es-AR', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+              })}
             </p>
           </div>
           <Link
@@ -147,16 +173,37 @@ export function DashboardOverview({ profile, properties, recentRings: initialRin
           >
             <Plus size={16} />
             <span className="hidden sm:inline">Nueva propiedad</span>
+            <span className="sm:hidden">+</span>
           </Link>
         </div>
 
         {/* Stats */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { label: 'Propiedades', value: properties.length, icon: Home, color: 'text-blue-500' },
-            { label: 'Timbrazos hoy', value: totalRingsToday, icon: Bell, color: 'text-primary' },
-            { label: 'Total historial', value: rings.length, icon: TrendingUp, color: 'text-green-500' },
-            { label: 'Plan actual', value: { free: 'Gratis', pro: 'Pro', business: 'Business' }[profile.subscription_plan], icon: Clock, color: 'text-purple-500' },
+            {
+              label: 'Propiedades',
+              value: properties.length,
+              icon: Home,
+              color: 'text-blue-500',
+            },
+            {
+              label: 'Timbrazos hoy',
+              value: totalRingsToday,
+              icon: Bell,
+              color: 'text-primary',
+            },
+            {
+              label: 'Total historial',
+              value: rings.length,
+              icon: TrendingUp,
+              color: 'text-green-500',
+            },
+            {
+              label: 'Plan actual',
+              value: PLAN_LABELS[profile.subscription_plan] ?? 'Gratis',
+              icon: CreditCard,
+              color: 'text-purple-500',
+            },
           ].map((stat) => (
             <div key={stat.label} className="rounded-2xl border border-border bg-card p-4">
               <div className={`${stat.color} mb-2`}>
@@ -201,9 +248,15 @@ export function DashboardOverview({ profile, properties, recentRings: initialRin
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center text-xl">
-                      {property.type === 'house' ? '🏠' : property.type === 'office' ? '🏢' : property.type === 'store' ? '🏪' : '🏘️'}
+                      {property.type === 'house'
+                        ? '🏠'
+                        : property.type === 'office'
+                        ? '🏢'
+                        : property.type === 'store'
+                        ? '🏪'
+                        : '🏘️'}
                     </div>
-                    <span className={`text-xs font-medium ${STATUS_COLORS[property.status]}`}>
+                    <span className={`text-xs font-medium ${STATUS_COLORS[property.status] ?? 'text-muted-foreground'}`}>
                       ● {PROPERTY_STATUS_LABELS[property.status]}
                     </span>
                   </div>
@@ -211,7 +264,9 @@ export function DashboardOverview({ profile, properties, recentRings: initialRin
                     {property.name}
                   </h3>
                   {property.unit_number && (
-                    <p className="text-xs text-muted-foreground mt-0.5">Unidad {property.unit_number}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Unidad {property.unit_number}
+                    </p>
                   )}
                 </Link>
               ))}

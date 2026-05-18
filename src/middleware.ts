@@ -2,6 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  const needsAuth = pathname.startsWith('/dashboard') || pathname.startsWith('/admin')
+  const isAuthPage = pathname.startsWith('/auth') && !pathname.includes('callback')
+
+  if (!needsAuth && !isAuthPage) {
+    return NextResponse.next()
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
@@ -22,21 +31,19 @@ export async function middleware(request: NextRequest) {
   )
 
   const { data: { user } } = await supabase.auth.getUser()
-  const { pathname } = request.nextUrl
 
-  // Protect dashboard routes
-  if (pathname.startsWith('/dashboard') && !user) {
-    return NextResponse.redirect(new URL('/auth/login', request.url))
+  if (needsAuth && !user) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth/login'
+    url.search = ''
+    return NextResponse.redirect(url)
   }
 
-  // Protect admin routes
-  if (pathname.startsWith('/admin') && !user) {
-    return NextResponse.redirect(new URL('/auth/login', request.url))
-  }
-
-  // Redirect authenticated users away from auth pages
-  if (user && pathname.startsWith('/auth') && !pathname.includes('callback')) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+  if (isAuthPage && user) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/dashboard'
+    url.search = ''
+    return NextResponse.redirect(url)
   }
 
   return supabaseResponse
@@ -44,6 +51,8 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|icons|images|manifest.json|service-worker.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js|woff|woff2)$).*)',
+    '/dashboard/:path*',
+    '/admin/:path*',
+    '/auth/:path*',
   ],
 }

@@ -23,6 +23,14 @@ const schema = z.object({
 })
 type FormData = z.infer<typeof schema>
 
+const ERROR_MESSAGES: Record<string, string> = {
+  'User already registered': 'Ya existe una cuenta con este email. ¿Querés iniciar sesión?',
+  'Password should be at least 6 characters': 'La contraseña debe tener al menos 6 caracteres',
+  'Unable to validate email address: invalid format': 'El formato del email no es válido',
+  'Email rate limit exceeded': 'Demasiados intentos. Esperá unos minutos.',
+  'signup_disabled': 'El registro está deshabilitado temporalmente.',
+}
+
 export default function RegisterPage() {
   const router = useRouter()
   const supabase = createClient()
@@ -30,6 +38,7 @@ export default function RegisterPage() {
   const [googleLoading, setGoogleLoading] = useState(false)
   const [serverError, setServerError] = useState('')
   const [success, setSuccess] = useState(false)
+  const [needsEmailConfirm, setNeedsEmailConfirm] = useState(false)
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -37,29 +46,60 @@ export default function RegisterPage() {
 
   const onSubmit = async (data: FormData) => {
     setServerError('')
-    const { error } = await supabase.auth.signUp({
-      email: data.email,
-      password: data.password,
-      options: {
-        data: { full_name: data.full_name },
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
-    if (error) {
-      setServerError(error.message === 'User already registered'
-        ? 'Ya existe una cuenta con este email'
-        : 'Error al registrarse. Intentá de nuevo.')
-      return
+
+    try {
+      const { data: authData, error } = await supabase.auth.signUp({
+        email: data.email.trim().toLowerCase(),
+        password: data.password,
+        options: {
+          data: { full_name: data.full_name.trim() },
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      })
+
+      if (error) {
+        console.error('[Register] Supabase error:', error)
+        const msg = ERROR_MESSAGES[error.message] ?? `Error: ${error.message}`
+        setServerError(msg)
+        return
+      }
+
+      if (authData?.user?.identities?.length === 0) {
+        setServerError('Ya existe una cuenta con este email. ¿Querés iniciar sesión?')
+        return
+      }
+
+      // Sin confirmación de email → entra directo al dashboard
+      if (authData?.session) {
+        router.push(ROUTES.dashboard)
+        router.refresh()
+        return
+      }
+
+      // Con confirmación de email → mostrar mensaje
+      if (authData?.user) {
+        setNeedsEmailConfirm(true)
+        setSuccess(true)
+        return
+      }
+
+      setServerError('Ocurrió un error inesperado. Intentá de nuevo.')
+    } catch (err) {
+      console.error('[Register] Unexpected error:', err)
+      setServerError('Error de conexión. Verificá tu internet e intentá de nuevo.')
     }
-    setSuccess(true)
   }
 
   const handleGoogle = async () => {
     setGoogleLoading(true)
-    await supabase.auth.signInWithOAuth({
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: `${window.location.origin}/auth/callback` },
     })
+    if (error) {
+      setServerError('Error al conectar con Google. Intentá de nuevo.')
+      setGoogleLoading(false)
+    }
   }
 
   if (success) {
@@ -69,17 +109,31 @@ export default function RegisterPage() {
         animate={{ opacity: 1, scale: 1 }}
         className="rounded-3xl border border-border bg-card shadow-xl p-8 text-center"
       >
-        <div className="text-5xl mb-4">📬</div>
-        <h2 className="font-display text-xl font-bold mb-2">¡Revisá tu email!</h2>
+        <div className="text-5xl mb-4">{needsEmailConfirm ? '📬' : '✅'}</div>
+        <h2 className="font-display text-xl font-bold mb-2">
+          {needsEmailConfirm ? '¡Revisá tu email!' : '¡Cuenta creada!'}
+        </h2>
         <p className="text-muted-foreground text-sm">
-          Te enviamos un link de confirmación. Hacé click en el link para activar tu cuenta.
+          {needsEmailConfirm
+            ? 'Te enviamos un link de confirmación. Hacé click en el link para activar tu cuenta y luego iniciá sesión.'
+            : 'Tu cuenta fue creada exitosamente.'}
         </p>
-        <Link href={ROUTES.login} className="mt-6 inline-block text-sm text-primary hover:underline">
-          Volver al inicio
-        </Link>
+        <div className="mt-6">
+          <Link
+            href={ROUTES.login}
+            className="block w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground hover:opacity-90 transition-all"
+          >
+            Ir a iniciar sesión
+          </Link>
+        </div>
       </motion.div>
     )
   }
+
+  const inputClass = (hasError: boolean) => cn(
+    'w-full rounded-xl border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all',
+    hasError ? 'border-destructive' : 'border-border'
+  )
 
   return (
     <motion.div
@@ -109,34 +163,38 @@ export default function RegisterPage() {
       </button>
 
       <div className="relative mb-6">
-        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border" /></div>
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-border" />
+        </div>
         <div className="relative flex justify-center text-xs text-muted-foreground">
           <span className="bg-card px-3">o con email</span>
         </div>
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-        {[
-          { name: 'full_name', label: 'Nombre completo', type: 'text', placeholder: 'Tu nombre', autoComplete: 'name' },
-          { name: 'email', label: 'Email', type: 'email', placeholder: 'vos@ejemplo.com', autoComplete: 'email' },
-        ].map((f) => (
-          <div key={f.name}>
-            <label className="block text-sm font-medium mb-1.5">{f.label}</label>
-            <input
-              {...register(f.name as keyof FormData)}
-              type={f.type}
-              placeholder={f.placeholder}
-              autoComplete={f.autoComplete}
-              className={cn(
-                'w-full rounded-xl border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all',
-                errors[f.name as keyof FormData] ? 'border-destructive' : 'border-border'
-              )}
-            />
-            {errors[f.name as keyof FormData] && (
-              <p className="text-xs text-destructive mt-1">{errors[f.name as keyof FormData]?.message}</p>
-            )}
-          </div>
-        ))}
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Nombre completo</label>
+          <input
+            {...register('full_name')}
+            type="text"
+            placeholder="Tu nombre"
+            autoComplete="name"
+            className={inputClass(!!errors.full_name)}
+          />
+          {errors.full_name && <p className="text-xs text-destructive mt-1">{errors.full_name.message}</p>}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Email</label>
+          <input
+            {...register('email')}
+            type="email"
+            placeholder="vos@ejemplo.com"
+            autoComplete="email"
+            className={inputClass(!!errors.email)}
+          />
+          {errors.email && <p className="text-xs text-destructive mt-1">{errors.email.message}</p>}
+        </div>
 
         <div>
           <label className="block text-sm font-medium mb-1.5">Contraseña</label>
@@ -146,12 +204,13 @@ export default function RegisterPage() {
               type={showPwd ? 'text' : 'password'}
               placeholder="Mínimo 8 caracteres"
               autoComplete="new-password"
-              className={cn(
-                'w-full rounded-xl border bg-background px-4 py-3 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all',
-                errors.password ? 'border-destructive' : 'border-border'
-              )}
+              className={inputClass(!!errors.password)}
             />
-            <button type="button" onClick={() => setShowPwd(!showPwd)} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => setShowPwd(!showPwd)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
               {showPwd ? <EyeOff size={16} /> : <Eye size={16} />}
             </button>
           </div>
@@ -165,16 +224,20 @@ export default function RegisterPage() {
             type="password"
             placeholder="Repetí tu contraseña"
             autoComplete="new-password"
-            className={cn(
-              'w-full rounded-xl border bg-background px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all',
-              errors.confirm_password ? 'border-destructive' : 'border-border'
-            )}
+            className={inputClass(!!errors.confirm_password)}
           />
           {errors.confirm_password && <p className="text-xs text-destructive mt-1">{errors.confirm_password.message}</p>}
         </div>
 
         {serverError && (
-          <div className="rounded-xl bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive">{serverError}</div>
+          <div className="rounded-xl bg-destructive/10 border border-destructive/20 px-4 py-3 text-sm text-destructive">
+            {serverError}
+            {serverError.includes('iniciar sesión') && (
+              <Link href={ROUTES.login} className="block mt-1 underline font-medium">
+                Ir a login →
+              </Link>
+            )}
+          </div>
         )}
 
         <button
@@ -183,13 +246,15 @@ export default function RegisterPage() {
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-primary-foreground hover:opacity-90 transition-all disabled:opacity-50"
         >
           {isSubmitting && <Loader2 size={16} className="animate-spin" />}
-          Crear cuenta gratis
+          {isSubmitting ? 'Creando cuenta...' : 'Crear cuenta gratis'}
         </button>
       </form>
 
       <p className="mt-6 text-center text-sm text-muted-foreground">
         ¿Ya tenés cuenta?{' '}
-        <Link href={ROUTES.login} className="font-medium text-primary hover:underline">Iniciá sesión</Link>
+        <Link href={ROUTES.login} className="font-medium text-primary hover:underline">
+          Iniciá sesión
+        </Link>
       </p>
     </motion.div>
   )

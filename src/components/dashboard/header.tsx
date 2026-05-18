@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Bell, Moon, Sun, Menu } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Bell, Moon, Sun } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -15,10 +15,18 @@ interface Props {
 export function DashboardHeader({ profile }: Props) {
   const { theme, setTheme } = useTheme()
   const [unreadCount, setUnreadCount] = useState(0)
-  const supabase = createClient()
+  // FIX: usar ref para no recrear el cliente en cada render
+  const supabaseRef = useRef(createClient())
+  const subscribedRef = useRef(false)
 
   useEffect(() => {
-    // Get initial count
+    // FIX: evitar doble suscripción en StrictMode
+    if (subscribedRef.current) return
+    subscribedRef.current = true
+
+    const supabase = supabaseRef.current
+
+    // Contar no leídas
     supabase
       .from('notifications')
       .select('id', { count: 'exact', head: true })
@@ -26,9 +34,9 @@ export function DashboardHeader({ profile }: Props) {
       .eq('is_read', false)
       .then(({ count }) => setUnreadCount(count ?? 0))
 
-    // Subscribe to new notifications
+    // Suscribir solo una vez
     const channel = supabase
-      .channel(`notifications:${profile.id}`)
+      .channel('header-notifs-' + profile.id)
       .on(
         'postgres_changes',
         {
@@ -37,14 +45,15 @@ export function DashboardHeader({ profile }: Props) {
           table: 'notifications',
           filter: `user_id=eq.${profile.id}`,
         },
-        () => {
-          setUnreadCount((prev) => prev + 1)
-        }
+        () => setUnreadCount((prev) => prev + 1)
       )
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
-  }, [profile.id]) // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      subscribedRef.current = false
+      supabase.removeChannel(channel)
+    }
+  }, [profile.id])
 
   return (
     <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-border bg-card/80 backdrop-blur-sm px-4 md:px-6">
@@ -54,9 +63,7 @@ export function DashboardHeader({ profile }: Props) {
         <span className="font-display font-bold gradient-text">QR Bell</span>
       </div>
 
-      <div className="hidden md:block">
-        {/* Page title will be set by child pages */}
-      </div>
+      <div className="hidden md:block" />
 
       <div className="flex items-center gap-2 ml-auto">
         {/* Theme toggle */}
