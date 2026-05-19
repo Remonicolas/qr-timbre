@@ -2,7 +2,7 @@
   "name": "QR Bell - Timbre Inteligente",
   "short_name": "QR Bell",
   "description": "El timbre digital que protege tu número. Recibí visitas con un código QR.",
-  "start_url": "/dashboard",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#0a0a0f",
   "theme_color": "#4f6ef7",
