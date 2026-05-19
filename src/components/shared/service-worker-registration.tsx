@@ -4,7 +4,6 @@ import { useEffect } from 'react'
 
 export function ServiceWorkerRegistration() {
   useEffect(() => {
-    // Solo en producción y si el browser lo soporta
     if (
       typeof window === 'undefined' ||
       !('serviceWorker' in navigator) ||
@@ -15,10 +14,33 @@ export function ServiceWorkerRegistration() {
 
     const registerSW = async () => {
       try {
-        await navigator.serviceWorker.register('/service-worker.js', {
-          scope: '/',
-          updateViaCache: 'none',
+        const registration = await navigator.serviceWorker.register(
+          '/service-worker.js',
+          {
+            scope: '/',
+            updateViaCache: 'none',
+          }
+        )
+
+        // 🔥 FORZAR CONTROL INMEDIATO (IMPORTANTE PARA iOS)
+        if (registration.waiting) {
+          registration.waiting.postMessage({ type: 'SKIP_WAITING' })
+        }
+
+        registration.addEventListener('updatefound', () => {
+          const newWorker = registration.installing
+          if (newWorker) {
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed') {
+                if (navigator.serviceWorker.controller) {
+                  newWorker.postMessage({ type: 'SKIP_WAITING' })
+                }
+              }
+            })
+          }
         })
+
+        console.log('[QRBell] SW registered:', registration.scope)
       } catch (err) {
         console.warn('[QRBell] Service Worker registration failed:', err)
       }
