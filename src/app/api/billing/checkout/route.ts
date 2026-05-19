@@ -1,30 +1,69 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { createOrRetrieveCustomer, createCheckoutSession, STRIPE_PRICES } from '@/lib/stripe'
 import { APP_CONFIG, ROUTES } from '@/config/app'
 import type { SubscriptionPlan } from '@/types'
 
+export const dynamic = 'force-dynamic'
+
 export async function POST(request: NextRequest) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  try {
+    // Todo dentro del handler — nada se ejecuta en build time
+    const { createClient: createAdminClient } = await import('@/lib/supabase/server')
+    const { createOrRetrieveCustomer, createCheckoutSession, STRIPE_PRICES } = await import('@/lib/stripe')
 
-  const { plan, billing } = await request.json() as { plan: SubscriptionPlan; billing: 'monthly' | 'yearly' }
-  const prices = STRIPE_PRICES[plan]
-  const priceId = billing === 'yearly' ? prices.yearly : prices.monthly
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+    }
 
-  if (!priceId) return NextResponse.json({ error: 'Plan inválido' }, { status: 400 })
+    const body = await request.json() as { plan: SubscriptionPlan; billing: 'monthly' | 'yearly' }
+    const { plan, billing } = body
 
-  const { data: profile } = await supabase.from('user_profiles').select('email, full_name').eq('id', user.id).single()
-  const customerId = await createOrRetrieveCustomer(user.id, profile!.email, profile?.full_name ?? undefined)
+    const prices = STRIPE_PRICES[plan]
+    if (!prices) {
+      return NextResponse.json({ error: 'Plan inválido' }, { status: 400 })
+    }
 
-  const url = await createCheckoutSession(
-    customerId,
-    priceId,
-    user.id,
-    `${APP_CONFIG.url}${ROUTES.billing}?success=1`,
-    `${APP_CONFIG.url}${ROUTES.billing}`
-  )
+    const priceId = billing === 'yearly' ? prices.yearly : prices.monthly
+    if (!priceId) {
+      return NextResponse.json({ error: 'Precio no configurado' }, { status: 400 })
+    }
 
-  return NextResponse.json({ url })
+    const adminSupabase = await createAdminClient()
+    const { data: profile } = await adminSupabase
+      .from('user_profiles')
+      .select('email, full_name')
+      .eq('id', user.id)
+      .single()
+
+    if (!profile?.email) {
+      return NextResponse.json({ error: 'Perfil no encontrado' }, { status: 400 })
+    }
+
+    const customerId = await createOrRetrieveCustomer(
+      user.id,
+      profile.email,
+      profile.full_name ?? undefined
+    )
+
+    const successUrl = `${process.env.NEXT_PUBLIC_APP_URL}${ROUTES.billing}?success=1`
+    const cancelUrl = `${process.env.NEXT_PUBLIC_APP_URL}${ROUTES.billing}`
+
+    const url = await createCheckoutSession(
+      customerId,
+      priceId,
+      user.id,
+      successUrl,
+      cancelUrl
+    )
+
+    return NextResponse.json({ url, error: null })
+  } catch (err) {
+    console.error('[Checkout] Error:', err)
+    return NextResponse.json(
+      { error: 'Error al procesar el pago' },
+      { status: 500 }
+    )
+  }
 }

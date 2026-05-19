@@ -1,35 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { stripe, getPlanFromPriceId, getMaxPropertiesForPlan } from '@/lib/stripe'
-import { createAdminClient } from '@/lib/supabase/server'
-import type Stripe from 'stripe'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
-  const body = await request.text()
-  const sig = request.headers.get('stripe-signature')
-
-  if (!sig) {
-    return NextResponse.json({ error: 'Missing signature' }, { status: 400 })
-  }
-
-  let event: Stripe.Event
   try {
-    event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET!)
-  } catch (err) {
-    console.error('Webhook signature verification failed:', err)
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
-  }
+    const { stripe, getPlanFromPriceId, getMaxPropertiesForPlan } = await import('@/lib/stripe')
+    const { createAdminClient } = await import('@/lib/supabase/server')
+    const type = await import('stripe')
 
-  const supabase = await createAdminClient()
+    const body = await request.text()
+    const sig = request.headers.get('stripe-signature')
 
-  try {
+    if (!sig) {
+      return NextResponse.json({ error: 'Missing signature' }, { status: 400 })
+    }
+
+    if (!process.env.STRIPE_WEBHOOK_SECRET) {
+      return NextResponse.json({ error: 'Webhook secret not configured' }, { status: 500 })
+    }
+
+    let event: Awaited<ReturnType<typeof stripe.webhooks.constructEventAsync>>
+    try {
+      event = await stripe.webhooks.constructEventAsync(
+        body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      )
+    } catch {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
+    }
+
+    const supabase = await createAdminClient()
+
     switch (event.type) {
       case 'customer.subscription.created':
       case 'customer.subscription.updated': {
-        const subscription = event.data.object as Stripe.Subscription
+        const subscription = event.data.object as {
+          id: string
+          status: string
+          metadata: Record<string, string>
+          items: { data: Array<{ price: { id: string } }> }
+        }
         const userId = subscription.metadata['supabase_user_id']
-
         if (!userId) break
 
         const priceId = subscription.items.data[0]?.price.id
@@ -51,9 +63,10 @@ export async function POST(request: NextRequest) {
       }
 
       case 'customer.subscription.deleted': {
-        const subscription = event.data.object as Stripe.Subscription
+        const subscription = event.data.object as {
+          metadata: Record<string, string>
+        }
         const userId = subscription.metadata['supabase_user_id']
-
         if (!userId) break
 
         await supabase
@@ -66,7 +79,6 @@ export async function POST(request: NextRequest) {
           })
           .eq('id', userId)
 
-        // Notify user
         await supabase.from('notifications').insert({
           user_id: userId,
           type: 'subscription',
@@ -77,8 +89,8 @@ export async function POST(request: NextRequest) {
       }
 
       case 'invoice.payment_failed': {
-        const invoice = event.data.object as Stripe.Invoice
-        const customerId = invoice.customer as string
+        const invoice = event.data.object as { customer: string }
+        const customerId = invoice.customer
 
         const { data: profile } = await supabase
           .from('user_profiles')
@@ -101,24 +113,11 @@ export async function POST(request: NextRequest) {
         }
         break
       }
-
-      case 'customer.created': {
-        const customer = event.data.object as Stripe.Customer
-        const userId = customer.metadata['supabase_user_id']
-
-        if (userId) {
-          await supabase
-            .from('user_profiles')
-            .update({ stripe_customer_id: customer.id })
-            .eq('id', userId)
-        }
-        break
-      }
     }
+
+    return NextResponse.json({ received: true })
   } catch (err) {
-    console.error('Webhook handler error:', err)
+    console.error('[Webhook] Error:', err)
     return NextResponse.json({ error: 'Webhook handler failed' }, { status: 500 })
   }
-
-  return NextResponse.json({ received: true })
 }

@@ -1,16 +1,37 @@
 // ============================================================
-// QR BELL - Stripe Server-only Integration
-// Este archivo solo se usa en API routes (server-side)
+// QR BELL - Stripe Server Integration
+// IMPORTANTE: Solo usar en API routes, nunca en Client Components
 // ============================================================
-import Stripe from 'stripe'
 import type { SubscriptionPlan } from '@/types'
 
-// Re-exportar constantes de display desde plans.ts
 export { PLAN_DISPLAY } from './plans'
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-11-20.acacia',
-  typescript: true,
+// Lazy init — Stripe se instancia solo cuando se llama, no en build time
+let _stripe: import('stripe').default | null = null
+
+export async function getStripe() {
+  if (!_stripe) {
+    const Stripe = (await import('stripe')).default
+    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+      apiVersion: '2024-11-20.acacia',
+      typescript: true,
+    })
+  }
+  return _stripe
+}
+
+// Para uso directo en archivos que ya son server-only (webhooks, etc.)
+export const stripe = new Proxy({} as import('stripe').default, {
+  get(_target, prop) {
+    return async (...args: unknown[]) => {
+      const s = await getStripe()
+      const method = (s as unknown as Record<string, unknown>)[prop as string]
+      if (typeof method === 'function') {
+        return (method as (...a: unknown[]) => unknown).apply(s, args)
+      }
+      return method
+    }
+  },
 })
 
 export const STRIPE_PRICES: Record<SubscriptionPlan, { monthly?: string; yearly?: string }> = {
@@ -31,6 +52,7 @@ export async function createOrRetrieveCustomer(
   name?: string
 ): Promise<string> {
   const { createAdminClient } = await import('@/lib/supabase/server')
+  const s = await getStripe()
   const supabase = await createAdminClient()
 
   const { data: profile } = await supabase
@@ -43,7 +65,7 @@ export async function createOrRetrieveCustomer(
     return profile.stripe_customer_id
   }
 
-  const customer = await stripe.customers.create({
+  const customer = await s.customers.create({
     email,
     name: name ?? undefined,
     metadata: { supabase_user_id: userId },
@@ -64,7 +86,8 @@ export async function createCheckoutSession(
   successUrl: string,
   cancelUrl: string
 ): Promise<string> {
-  const session = await stripe.checkout.sessions.create({
+  const s = await getStripe()
+  const session = await s.checkout.sessions.create({
     customer: customerId,
     mode: 'subscription',
     payment_method_types: ['card'],
@@ -77,9 +100,7 @@ export async function createCheckoutSession(
       trial_period_days: 14,
     },
     allow_promotion_codes: true,
-    billing_address_collection: 'auto',
   })
-
   return session.url!
 }
 
@@ -87,11 +108,11 @@ export async function createPortalSession(
   customerId: string,
   returnUrl: string
 ): Promise<string> {
-  const session = await stripe.billingPortal.sessions.create({
+  const s = await getStripe()
+  const session = await s.billingPortal.sessions.create({
     customer: customerId,
     return_url: returnUrl,
   })
-
   return session.url
 }
 
@@ -110,6 +131,5 @@ export function getPlanFromPriceId(priceId: string): SubscriptionPlan {
 }
 
 export function getMaxPropertiesForPlan(plan: SubscriptionPlan): number {
-  const limits = { free: 1, pro: 5, business: 50 }
-  return limits[plan]
+  return { free: 1, pro: 5, business: 50 }[plan]
 }
