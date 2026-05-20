@@ -51,7 +51,7 @@ export function SettingsClient({ profile }: Props) {
         toast.error('Permiso denegado. Habilitá las notificaciones en tu navegador.')
         return
       }
-      await navigator.serviceWorker.register('/sw.js')
+      await navigator.serviceWorker.register('/service-worker.js')
       const reg = await navigator.serviceWorker.ready
       const existing = await reg.pushManager.getSubscription()
       if (existing) await existing.unsubscribe()
