@@ -1,62 +1,104 @@
 // ============================================================
-// QR BELL - Service Worker
-// Handles: Push Notifications, Background Sync, Offline Cache
+// QR BELL — Service Worker v2
+// iOS Safari compatible — Push + Cache + Offline
 // ============================================================
 
-const CACHE_NAME = 'qrbell-v1'
+const CACHE_VERSION = 'qrbell-v2'
 const STATIC_ASSETS = [
   '/',
-  '/dashboard',
   '/manifest.json',
+  '/icons/apple-touch-icon.png',
   '/icons/icon-192x192.png',
   '/icons/icon-512x512.png',
 ]
 
 // ─── Install ─────────────────────────────────────────────────
-
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
+    caches
+      .open(CACHE_VERSION)
+      .then((cache) =>
+        // addAll with individual error handling — if one icon 404s don't fail all
+        Promise.allSettled(STATIC_ASSETS.map((url) => cache.add(url)))
+      )
+      .then(() => self.skipWaiting())
   )
-  self.skipWaiting()
 })
 
 // ─── Activate ────────────────────────────────────────────────
-
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key !== CACHE_VERSION)
+            .map((key) => caches.delete(key))
+        )
       )
-    )
+      .then(() => self.clients.claim())
   )
-  self.clients.claim()
 })
 
-// ─── Fetch (Network First with Cache Fallback) ────────────────
-
+// ─── Fetch ───────────────────────────────────────────────────
 self.addEventListener('fetch', (event) => {
-  // Skip non-GET and API requests
-  if (event.request.method !== 'GET') return
-  if (event.request.url.includes('/api/')) return
-  if (event.request.url.includes('supabase')) return
+  const { request } = event
+  const url = new URL(request.url)
 
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response.ok) {
-          const clone = response.clone()
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone))
-        }
-        return response
+  // Only handle same-origin GET requests
+  if (request.method !== 'GET') return
+  if (url.origin !== self.location.origin) return
+
+  // Never intercept API or Supabase calls
+  if (url.pathname.startsWith('/api/')) return
+  if (url.pathname.startsWith('/_next/webpack-hmr')) return
+
+  // For navigation requests (HTML pages): Network first, cache fallback
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          if (response.ok) {
+            const clone = response.clone()
+            caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone))
+          }
+          return response
+        })
+        .catch(async () => {
+          // Offline fallback: serve cached '/' for any navigation
+          const cached = await caches.match(request)
+          if (cached) return cached
+          // Last resort: return the root cached page
+          return caches.match('/') ?? Response.error()
+        })
+    )
+    return
+  }
+
+  // For static assets (_next/static, icons, fonts): Cache first
+  if (
+    url.pathname.startsWith('/_next/static/') ||
+    url.pathname.startsWith('/icons/') ||
+    url.pathname.startsWith('/fonts/')
+  ) {
+    event.respondWith(
+      caches.match(request).then((cached) => {
+        if (cached) return cached
+        return fetch(request).then((response) => {
+          if (response.ok) {
+            const clone = response.clone()
+            caches.open(CACHE_VERSION).then((cache) => cache.put(request, clone))
+          }
+          return response
+        })
       })
-      .catch(() => caches.match(event.request))
-  )
+    )
+    return
+  }
 })
 
 // ─── Push Notifications ───────────────────────────────────────
-
 self.addEventListener('push', (event) => {
   if (!event.data) return
 
@@ -66,25 +108,23 @@ self.addEventListener('push', (event) => {
   } catch {
     payload = {
       title: '🔔 QR Bell',
-      body: event.data.text(),
-      icon: '/icons/icon-192x192.png',
+      body: event.data.text() || 'Alguien tocó tu timbre',
     }
   }
 
   const options = {
-    body: payload.body,
+    body: payload.body || 'Alguien tocó tu timbre',
     icon: payload.icon || '/icons/icon-192x192.png',
-    badge: payload.badge || '/icons/badge-72x72.png',
-    tag: payload.tag || 'qrbell-notification',
+    badge: payload.badge || '/icons/icon-192x192.png',
+    tag: payload.tag || 'qrbell-ring',
     data: payload.data || {},
-    requireInteraction: payload.requireInteraction ?? true,
-    vibrate: payload.vibrate || [200, 100, 200],
-    actions: payload.actions || [
+    requireInteraction: true,
+    // iOS 16.4+ supports vibrate in SW push
+    vibrate: [200, 100, 200],
+    actions: [
       { action: 'view', title: '👀 Ver' },
       { action: 'dismiss', title: 'Ignorar' },
     ],
-    silent: false,
-    timestamp: Date.now(),
   }
 
   event.waitUntil(
@@ -93,74 +133,35 @@ self.addEventListener('push', (event) => {
 })
 
 // ─── Notification Click ───────────────────────────────────────
-
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
 
-  const data = event.notification.data || {}
-  const action = event.action
+  if (event.action === 'dismiss') return
 
-  let url = '/dashboard'
-  if (data.url) url = data.url
-  if (data.ring_event_id) url = '/dashboard/historial'
-  if (action === 'dismiss') return
+  const data = event.notification.data || {}
+  const targetUrl = data.url || '/dashboard'
 
   event.waitUntil(
     self.clients
       .matchAll({ type: 'window', includeUncontrolled: true })
       .then((clients) => {
-        // Focus existing window
-        const existingClient = clients.find((c) => c.url.includes('/dashboard'))
-        if (existingClient) {
-          existingClient.focus()
-          existingClient.postMessage({ type: 'NOTIFICATION_CLICK', data })
-          return
+        // Focus existing window if open
+        for (const client of clients) {
+          if (client.url.includes(self.location.origin) && 'focus' in client) {
+            client.focus()
+            client.postMessage({ type: 'NOTIFICATION_CLICK', data })
+            return
+          }
         }
         // Open new window
-        return self.clients.openWindow(url)
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(targetUrl)
+        }
       })
   )
 })
 
-// ─── Notification Close ───────────────────────────────────────
-
-self.addEventListener('notificationclose', (event) => {
-  const data = event.notification.data || {}
-  // Could track dismissal analytics here
-  console.log('[SW] Notification dismissed:', data)
-})
-
-// ─── Background Sync ──────────────────────────────────────────
-
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'sync-rings') {
-    event.waitUntil(syncPendingRings())
-  }
-})
-
-async function syncPendingRings() {
-  // Sync any rings queued while offline
-  const cache = await caches.open(CACHE_NAME)
-  const pendingRings = await cache.match('/pending-rings')
-  if (!pendingRings) return
-
-  const rings = await pendingRings.json()
-  for (const ring of rings) {
-    try {
-      await fetch('/api/rings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ring),
-      })
-    } catch (err) {
-      console.error('[SW] Failed to sync ring:', err)
-    }
-  }
-  await cache.delete('/pending-rings')
-}
-
 // ─── Message Handler ──────────────────────────────────────────
-
 self.addEventListener('message', (event) => {
   if (event.data?.type === 'SKIP_WAITING') {
     self.skipWaiting()
