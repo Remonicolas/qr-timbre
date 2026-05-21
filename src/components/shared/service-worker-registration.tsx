@@ -10,7 +10,7 @@ export function ServiceWorkerRegistration() {
     const registerSW = async () => {
       try {
         const registration = await navigator.serviceWorker.register(
-          '/firebase-messaging-sw.js',
+          '/service-worker.js',
           {
             scope: '/',
             updateViaCache: 'none',
