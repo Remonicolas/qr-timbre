@@ -5,11 +5,10 @@ let nextConfig = {
   poweredByHeader: false,
   serverExternalPackages: ['@sentry/nextjs'],
 
-  // Ignorar errores de TypeScript y ESLint en build de producción
-  // Los errores de tipos no deben bloquear el deploy
   typescript: {
     ignoreBuildErrors: true,
   },
+
   eslint: {
     ignoreDuringBuilds: true,
   },
@@ -59,20 +58,6 @@ let nextConfig = {
     ]
   },
 }
-
-// PWA solo en producción
-try {
-  if (process.env.NODE_ENV === 'production') {
-    const withPWA = require('next-pwa')({
-      dest: 'public',
-      register: true,
-      skipWaiting: true,
-      sw: '/service-worker.js',
-      buildExcludes: [/middleware-manifest\.json$/],
-    })
-    nextConfig = withPWA(nextConfig)
-  }
-} catch { /* next-pwa no disponible */ }
 
 // Sentry solo si está configurado
 try {
