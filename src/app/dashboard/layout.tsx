@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { ROUTES } from '@/config/app'
 import { DashboardSidebar } from '@/components/dashboard/sidebar'
 import { DashboardHeader } from '@/components/dashboard/header'
+import { PushOnboardingBanner } from '@/components/shared/push-onboarding-banner'
 
 export default async function DashboardLayout({
   children,
@@ -22,7 +23,7 @@ export default async function DashboardLayout({
     .eq('id', user.id)
     .single()
 
-  // Si no existe el perfil, crearlo
+  // Auto-create profile if trigger didn't run
   if (!profile) {
     const { data: created } = await supabase
       .from('user_profiles')
@@ -37,11 +38,10 @@ export default async function DashboardLayout({
       })
       .select()
       .single()
-
     profile = created
   }
 
-  // Si sigue sin existir, usar datos del auth directamente sin redirigir
+  // Fallback using auth data directly — never redirect
   const safeProfile = profile ?? {
     id: user.id,
     email: user.email ?? '',
@@ -69,6 +69,8 @@ export default async function DashboardLayout({
           </div>
         </main>
       </div>
+      {/* Proactive push notification prompt for installed PWA */}
+      <PushOnboardingBanner />
     </div>
   )
 }
