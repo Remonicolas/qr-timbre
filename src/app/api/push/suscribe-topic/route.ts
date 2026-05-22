@@ -1,13 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { firebaseAdmin } from '@/lib/firebase-admin'
+import { createClient } from '@/lib/supabase/server'
 
 export async function POST(req: NextRequest) {
-  const { token, userId } = await req.json()
+  try {
+    const { token } = await req.json()
 
-  await firebaseAdmin.messaging().subscribeToTopic(
-    token,
-    `user_${userId}`
-  )
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
 
-  return NextResponse.json({ ok: true })
+    if (!user) {
+      return NextResponse.json({ error: 'No auth' }, { status: 401 })
+    }
+
+    await firebaseAdmin.messaging().subscribeToTopic(
+      token,
+      `user_${user.id}`
+    )
+
+    return NextResponse.json({ ok: true })
+  } catch (err) {
+    console.error('subscribe-topic error:', err)
+
+    return NextResponse.json(
+      { error: 'Server error' },
+      { status: 500 }
+    )
+  }
 }
