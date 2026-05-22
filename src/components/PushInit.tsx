@@ -3,6 +3,7 @@
 import { useEffect } from 'react'
 import { getToken } from 'firebase/messaging'
 import { messaging } from '@/lib/firebase/firebase'
+import { createClient } from '@/lib/supabase/client'
 
 export default function PushInit() {
   useEffect(() => {
@@ -10,35 +11,48 @@ export default function PushInit() {
       try {
         console.log('🔥 PushInit mounted')
 
-        if (!messaging) {
-          console.log('❌ Messaging unavailable')
-          return
-        }
+        if (!messaging) return
 
-        const permission =
-          await Notification.requestPermission()
-
+        const permission = await Notification.requestPermission()
         console.log('🔔 permission:', permission)
 
         if (permission !== 'granted') return
 
-        const registration =
-          await navigator.serviceWorker.register(
-            '/firebase-messaging-sw.js'
-          )
+        const registration = await navigator.serviceWorker.register(
+          '/firebase-messaging-sw.js'
+        )
 
         console.log('✅ SW registered')
 
         const token = await getToken(messaging, {
-          vapidKey:
-            process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY!,
+          vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY!,
           serviceWorkerRegistration: registration,
         })
 
         console.log('📲 FCM TOKEN:', token)
 
-        // TODO:
-        // guardar token en Supabase
+        // 🧠 GUARDAR TOKEN EN SUPABASE
+        const supabase = createClient()
+
+        const { data: userData } = await supabase.auth.getUser()
+
+        const user = userData?.user
+        if (!user) return
+
+        await supabase.from('push_subscriptions').upsert({
+          user_id: user.id,
+          token,
+          is_active: true,
+        })
+
+        // 🔥 SUSCRIBIR AL TOPIC
+        await fetch('/api/push/subscribe-topic', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token,
+          }),
+        })
       } catch (err) {
         console.error('❌ PUSH ERROR:', err)
       }
