@@ -9,38 +9,38 @@ export default function PushInit() {
   useEffect(() => {
     const supabase = createClient()
 
-    const initPush = async (userId: string) => {
-      const permission = await Notification.requestPermission()
-      if (permission !== 'granted') return
+    const initPush = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
 
-      const messaging = await messagingPromise
-      if (!messaging) return
+        if (!session?.access_token) return
 
-      const token = await getToken(messaging, {
-        vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY!,
-      })
+        const permission = await Notification.requestPermission()
+        if (permission !== 'granted') return
 
-      await fetch('/api/push/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${userId}`,
-        },
-        body: JSON.stringify({ token }),
-      })
-    }
+        const messaging = await messagingPromise
+        if (!messaging) return
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (session?.user) {
-          await initPush(session.user.id)
-        }
+        const token = await getToken(messaging, {
+          vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY!,
+        })
+
+        await fetch('/api/push/register', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ token }),
+        })
+      } catch (err) {
+        console.error('PUSH ERROR:', err)
       }
-    )
-
-    return () => {
-      listener.subscription.unsubscribe()
     }
+
+    initPush()
   }, [])
 
   return null
