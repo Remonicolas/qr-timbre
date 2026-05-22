@@ -1,92 +1,68 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/server'
-import { firebaseAdmin } from '@/lib/firebase-admin'
 
-const RingSchema = z.object({
-  qr_code: z.string().min(1).max(100),
-  visitor_category: z.enum(['delivery', 'guest', 'mail', 'emergency', 'other']).default('guest'),
-  visitor_message: z.string().max(150).optional(),
-  unit_id: z.string().uuid().optional(),
-})
-
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    const body = RingSchema.parse(await request.json())
+    const { token } = await req.json()
 
-    const supabase = await createAdminClient()
-
-    // 1. Buscar propiedad
-    const { data: property, error: propError } = await supabase
-      .from('properties')
-      .select('id, user_id, name, notification_push')
-      .eq('qr_code', body.qr_code)
-      .eq('is_active', true)
-      .single()
-
-    if (propError || !property) {
+    if (!token) {
       return NextResponse.json(
-        { error: 'Property not found' },
-        { status: 404 }
+        { error: 'Missing token' },
+        { status: 400 }
       )
     }
 
-    // 2. Guardar ring event
-    const { data: ringEvent, error: ringError } = await supabase
-      .from('ring_events')
-      .insert({
-        property_id: property.id,
-        visitor_category: body.visitor_category,
-        visitor_message: body.visitor_message ?? null,
-        status: 'pending',
-      })
-      .select('id')
-      .single()
+    const supabase = await createAdminClient()
 
-    if (ringError) {
-      console.error('Ring insert error:', ringError)
+    // 🔥 obtener user desde JWT del request (NO supabase.auth.getUser)
+    const authHeader = req.headers.get('authorization')
+
+    if (!authHeader) {
+      return NextResponse.json(
+        { error: 'No auth header' },
+        { status: 401 }
+      )
+    }
+
+    const tokenJwt = authHeader.replace('Bearer ', '')
+
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser(tokenJwt)
+
+    if (error || !user) {
+      return NextResponse.json(
+        { error: 'Invalid user' },
+        { status: 401 }
+      )
+    }
+
+    const { error: dbError } = await supabase
+      .from('push_subscriptions')
+      .upsert(
+        {
+          user_id: user.id,
+          fcm_token: token,
+          is_active: true,
+        },
+        {
+          onConflict: 'user_id,fcm_token',
+        }
+      )
+
+    if (dbError) {
+      console.error('DB ERROR:', dbError)
+
       return NextResponse.json(
         { error: 'DB error' },
         { status: 500 }
       )
     }
 
-    // 3. Obtener tokens FCM
-    const { data: tokens } = await supabase
-      .from('push_subscriptions')
-      .select('fcm_token')
-      .eq('user_id', property.user_id)
-      .eq('is_active', true)
-
-    const fcmTokens =
-      tokens?.map(t => t.fcm_token).filter(Boolean) ?? []
-
-    // 4. Enviar push si hay tokens
-    if (property.notification_push && fcmTokens.length > 0) {
-      try {
-        await firebaseAdmin.messaging().sendEachForMulticast({
-          tokens: fcmTokens,
-          notification: {
-            title: `🔔 ${property.name}`,
-            body: body.visitor_message ?? 'Alguien tocó el timbre',
-          },
-          data: {
-            property_id: property.id,
-            ring_event_id: ringEvent.id,
-            category: body.visitor_category,
-          },
-        })
-      } catch (err) {
-        console.error('FCM send error:', err)
-      }
-    }
-
-    return NextResponse.json({
-      ok: true,
-      ring_id: ringEvent.id,
-    })
+    return NextResponse.json({ ok: true })
   } catch (err) {
-    console.error('Rings error:', err)
+    console.error('REGISTER ERROR:', err)
 
     return NextResponse.json(
       { error: 'Server error' },
