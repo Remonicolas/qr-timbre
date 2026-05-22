@@ -4,13 +4,14 @@ import { useEffect } from 'react'
 
 export default function PushInit() {
   useEffect(() => {
-    if (!('Notification' in window)) return
+    console.log('🔥 PushInit mounted')
 
-    if (navigator.serviceWorker) {
-      Notification.requestPermission().then((permission) => {
-        console.log('Permiso notificaciones:', permission)
-      })
-    }
+    if (!('Notification' in window)) return
+    if (!navigator.serviceWorker) return
+
+    Notification.requestPermission().then((res) => {
+      console.log('🔔 permission:', res)
+    })
   }, [])
 
   return null
