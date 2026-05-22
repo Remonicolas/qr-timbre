@@ -4,7 +4,7 @@ import { Toaster } from 'sonner'
 import { QueryProvider } from '@/components/shared/query-provider'
 import { ServiceWorkerRegistration } from '@/components/shared/service-worker-registration'
 import { PWAInstallBanner } from '@/components/shared/pwa-install-banner'
-import { PushInit } from '@/components/PushInit' // 👈 AGREGADO
+import  PushInit  from '@/components/PushInit' // 👈 AGREGADO
 import { APP_CONFIG } from '@/config/app'
 import '@/styles/globals.css'
 
