@@ -29,32 +29,72 @@ let nextConfig = {
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+
+          // IMPORTANTE:
+          // Safari iOS + PWA + Firebase Push
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(), microphone=(), geolocation=(), notifications=(self)',
+          },
+
           {
             key: 'Content-Security-Policy',
             value: [
+              // Base
               "default-src 'self'",
-              "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://js.stripe.com",
+
+              // Scripts
+              "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://js.stripe.com https://www.gstatic.com",
+
+              // Styles
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+
+              // Fonts
               "font-src 'self' https://fonts.gstatic.com data:",
+
+              // Images
               "img-src 'self' data: blob: https:",
-              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com",
+
+              // API / sockets / firebase / supabase
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://firebase.googleapis.com https://fcm.googleapis.com https://www.googleapis.com",
+
+              // Frames
               "frame-src https://js.stripe.com",
-              "worker-src 'self' blob:",
+
+              // Workers / service workers
+              "worker-src 'self' blob: https://www.gstatic.com",
+
+              // Manifest
+              "manifest-src 'self'",
+
+              // Media
+              "media-src 'self' blob:",
+
+              // Object
+              "object-src 'none'",
             ].join('; '),
           },
         ],
       },
+
       {
         source: '/api/(.*)',
-        headers: [{ key: 'Cache-Control', value: 'no-store, max-age=0' }],
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-store, max-age=0',
+          },
+        ],
       },
     ]
   },
 
   async rewrites() {
     return [
-      { source: '/timbre/:qrCode', destination: '/visitor/:qrCode' },
+      {
+        source: '/timbre/:qrCode',
+        destination: '/visitor/:qrCode',
+      },
     ]
   },
 }
@@ -63,12 +103,15 @@ let nextConfig = {
 try {
   if (process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN) {
     const { withSentryConfig } = require('@sentry/nextjs')
+
     nextConfig = withSentryConfig(nextConfig, {
       silent: true,
       org: process.env.SENTRY_ORG,
       project: process.env.SENTRY_PROJECT,
     })
   }
-} catch { /* Sentry no configurado */ }
+} catch {
+  // Sentry no configurado
+}
 
 module.exports = nextConfig
