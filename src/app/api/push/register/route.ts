@@ -1,48 +1,60 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createAdminClient } from '@/lib/supabase/server'
+import { createClient } from '@supabase/supabase-js'
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
-    const token = body.token
+    const { token } = await req.json()
 
     if (!token) {
       return NextResponse.json({ error: 'Missing token' }, { status: 400 })
     }
 
     const authHeader = req.headers.get('authorization')
+
     if (!authHeader) {
       return NextResponse.json({ error: 'No auth' }, { status: 401 })
     }
 
-    const supabase = await createAdminClient()
-
-    // 👇 usar JWT solo para identificar user
     const jwt = authHeader.replace('Bearer ', '')
+
+    // 🔥 CLIENTE SOLO PARA VALIDAR JWT
+    const supabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        global: {
+          headers: {
+            Authorization: `Bearer ${jwt}`,
+          },
+        },
+      }
+    )
 
     const {
       data: { user },
-    } = await supabase.auth.getUser(jwt)
+      error,
+    } = await supabase.auth.getUser()
 
-    if (!user) {
+    if (error || !user) {
       return NextResponse.json({ error: 'Invalid user' }, { status: 401 })
     }
 
-    const { error } = await supabase
-      .from('push_subscriptions')
-      .upsert(
-        {
-          user_id: user.id,
-          fcm_token: token,
-          is_active: true,
-        },
-        {
-          onConflict: 'user_id,fcm_token',
-        }
-      )
+    // 🔥 ahora sí guardamos con admin client
+    const admin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    )
 
-    if (error) {
-      console.error('DB ERROR:', error)
+    const { error: dbError } = await admin
+      .from('push_subscriptions')
+      .upsert({
+        user_id: user.id,
+        fcm_token: token,
+        is_active: true,
+      })
+
+    if (dbError) {
+      console.error(dbError)
       return NextResponse.json({ error: 'DB error' }, { status: 500 })
     }
 

@@ -9,12 +9,8 @@ export default function PushInit() {
   useEffect(() => {
     const supabase = createClient()
 
-    const initPush = async () => {
+    const registerPush = async (session: any) => {
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
-
         if (!session?.access_token) return
 
         const permission = await Notification.requestPermission()
@@ -26,6 +22,10 @@ export default function PushInit() {
         const token = await getToken(messaging, {
           vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY!,
         })
+
+        if (!token) return
+
+        console.log('📲 FCM TOKEN:', token)
 
         await fetch('/api/push/register', {
           method: 'POST',
@@ -40,7 +40,18 @@ export default function PushInit() {
       }
     }
 
-    initPush()
+    // 🔥 CLAVE: escuchar login real
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      (_event, session) => {
+        if (session) {
+          registerPush(session)
+        }
+      }
+    )
+
+    return () => {
+      listener.subscription.unsubscribe()
+    }
   }, [])
 
   return null
