@@ -1,5 +1,5 @@
-import { initializeApp } from 'firebase/app'
-import { getMessaging } from 'firebase/messaging'
+import { initializeApp, getApps, getApp } from 'firebase/app'
+import { getMessaging, isSupported } from 'firebase/messaging'
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -11,6 +11,20 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 }
 
-const app = initializeApp(firebaseConfig)
+const app =
+  getApps().length > 0
+    ? getApp()
+    : initializeApp(firebaseConfig)
 
-export const messaging = getMessaging(app)
+export { app }
+
+// SOLO CLIENT SIDE
+export async function getFirebaseMessaging() {
+  if (typeof window === 'undefined') return null
+
+  const supported = await isSupported()
+
+  if (!supported) return null
+
+  return getMessaging(app)
+}

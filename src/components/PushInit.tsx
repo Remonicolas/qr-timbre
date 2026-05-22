@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 import { getToken } from 'firebase/messaging'
-import { messaging } from '@/lib/firebase/firebase'
+import { getFirebaseMessaging } from '@/lib/firebase/firebase'
 
 export default function PushInit() {
   useEffect(() => {
@@ -20,8 +20,11 @@ export default function PushInit() {
           return
         }
 
+        const messaging =
+          await getFirebaseMessaging()
+
         if (!messaging) {
-          console.log('❌ Firebase messaging missing')
+          console.log('❌ Firebase messaging unsupported')
           return
         }
 
@@ -41,11 +44,6 @@ export default function PushInit() {
           )
 
         console.log('✅ SW registered')
-
-        console.log(
-          '🧪 VAPID:',
-          process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY
-        )
 
         const token = await getToken(messaging, {
           vapidKey:
