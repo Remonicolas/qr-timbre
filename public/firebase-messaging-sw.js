@@ -1,5 +1,5 @@
 // ============================================================
-// Firebase Messaging SW - Stable v8
+// Firebase Messaging SW - Stable
 // ============================================================
 
 importScripts('https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js')
@@ -14,29 +14,45 @@ firebase.initializeApp({
   appId: "1:652914523099:web:37d9eb04f485289511c5fe",
 })
 
-const messaging = firebase.messaging()
+firebase.messaging()
 
 console.log('🔥 Firebase Messaging SW loaded')
 
 // ============================================================
-// BACKGROUND PUSH
+// WEB PUSH BACKGROUND
 // ============================================================
 
-messaging.setBackgroundMessageHandler(function(payload) {
-  console.log('📩 Background message:', payload)
+self.addEventListener('push', (event) => {
+  if (!event.data) return
 
-  return self.registration.showNotification(
-    payload.notification?.title || '🔔 QR Bell',
-    {
+  const payload = event.data.json()
+
+  console.log('📩 PUSH RECEIVED', payload)
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title || '🔔 QR Bell', {
       body:
-        payload.notification?.body ||
+        payload.body ||
         'Alguien tocó tu timbre',
 
-      icon: '/icons/icon-192x192.png',
-      badge: '/icons/icon-192x192.png',
+      icon:
+        payload.icon ||
+        '/icons/icon-192x192.png',
+
+      badge:
+        payload.badge ||
+        '/icons/badge-72x72.png',
+
+      vibrate:
+        payload.vibrate ||
+        [200, 100, 200],
 
       requireInteraction: true,
-    }
+
+      data: payload.data || {},
+
+      actions: payload.actions || [],
+    })
   )
 })
 
@@ -44,10 +60,14 @@ messaging.setBackgroundMessageHandler(function(payload) {
 // CLICK
 // ============================================================
 
-self.addEventListener('notificationclick', function(event) {
+self.addEventListener('notificationclick', (event) => {
   event.notification.close()
 
+  const url =
+    event.notification.data?.url ||
+    '/dashboard'
+
   event.waitUntil(
-    clients.openWindow('/dashboard')
+    clients.openWindow(url)
   )
 })
