@@ -42,7 +42,7 @@ export default async function ConfiguracionPage() {
       .single()
 
     if (error) {
-      console.error('Error creando profile:', error)
+      console.error('🔥 PROFILE ERROR:', JSON.stringify(error, null, 2))
 
       return (
         <div className="p-6 text-red-500">
