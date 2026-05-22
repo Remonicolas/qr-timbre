@@ -7,30 +7,57 @@ import { messaging } from '@/lib/firebase/firebase'
 export default function PushInit() {
   useEffect(() => {
     async function initPush() {
-      console.log('🔥 PushInit mounted')
+      try {
+        console.log('🔥 PushInit mounted')
 
-      if (!('Notification' in window)) return
-      if (!navigator.serviceWorker) return
-      if (!messaging) return
+        if (!('Notification' in window)) {
+          console.log('❌ Notification API missing')
+          return
+        }
 
-      const permission = await Notification.requestPermission()
+        if (!navigator.serviceWorker) {
+          console.log('❌ Service Worker unsupported')
+          return
+        }
 
-      console.log('🔔 permission:', permission)
+        if (!messaging) {
+          console.log('❌ Firebase messaging missing')
+          return
+        }
 
-      if (permission !== 'granted') return
+        const permission =
+          await Notification.requestPermission()
 
-      const registration = await navigator.serviceWorker.register(
-        '/firebase-messaging-sw.js'
-      )
+        console.log('🔔 permission:', permission)
 
-      console.log('✅ SW registered')
+        if (permission !== 'granted') {
+          console.log('❌ Permission denied')
+          return
+        }
 
-      const token = await getToken(messaging, {
-        vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
-        serviceWorkerRegistration: registration,
-      })
+        const registration =
+          await navigator.serviceWorker.register(
+            '/firebase-messaging-sw.js'
+          )
 
-      console.log('📲 FCM TOKEN:', token)
+        console.log('✅ SW registered')
+
+        console.log(
+          '🧪 VAPID:',
+          process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY
+        )
+
+        const token = await getToken(messaging, {
+          vapidKey:
+            process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
+
+          serviceWorkerRegistration: registration,
+        })
+
+        console.log('📲 FCM TOKEN:', token)
+      } catch (err) {
+        console.error('❌ PUSH ERROR:', err)
+      }
     }
 
     initPush()
