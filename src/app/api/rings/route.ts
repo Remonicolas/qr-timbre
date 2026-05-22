@@ -1,45 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createAdminClient } from '@/lib/supabase/server'
-import { rateLimitRing, rateLimitResponse, getRequestIdentifier } from '@/lib/rate-limit'
 import { firebaseAdmin } from '@/lib/firebase-admin'
 
 const RingSchema = z.object({
-  qr_code: z.string().min(1).max(100),
-  visitor_category: z.enum(['delivery', 'guest', 'mail', 'emergency', 'other']).default('guest'),
-  visitor_message: z.string().max(150).optional(),
-  unit_id: z.string().uuid().optional(),
+  qr_code: z.string(),
+  visitor_category: z.enum(['delivery', 'guest', 'mail', 'emergency', 'other']),
+  visitor_message: z.string().optional(),
 })
 
-export async function POST(request: NextRequest) {
-  try {
-    const ip = getRequestIdentifier(request)
-    const limitResult = await rateLimitRing(ip)
+export async function POST(req: NextRequest) {
+  const body = RingSchema.parse(await req.json())
 
-    if (!limitResult.success) {
-      return rateLimitResponse(limitResult)
-    }
+  const supabase = await createAdminClient()
 
-    const body = RingSchema.parse(await request.json())
+  const { data: property } = await supabase
+    .from('properties')
+    .select('id, user_id, name, notification_push')
+    .eq('qr_code', body.qr_code)
+    .single()
 
-    const supabase = await createAdminClient()
+  if (!property) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
 
-    // 1. buscar propiedad
-    const { data: property, error } = await supabase
-      .from('properties')
-      .select('id, user_id, name, notification_push')
-      .eq('qr_code', body.qr_code)
-      .single()
+  // 🔥 obtener token
+  const { data: tokens } = await supabase
+    .from('push_subscriptions')
+    .select('fcm_token')
+    .eq('user_id', property.user_id)
+    .eq('is_active', true)
 
-    if (error || !property) {
-      return NextResponse.json(
-        { error: 'Not found' },
-        { status: 404 }
-      )
-    }
+  const fcmTokens = tokens?.map(t => t.fcm_token).filter(Boolean) ?? []
 
-    // 2. payload push
-    const message = {
+  if (fcmTokens.length > 0) {
+    await firebaseAdmin.messaging().sendEachForMulticast({
+      tokens: fcmTokens,
       notification: {
         title: `🔔 ${property.name}`,
         body: body.visitor_message ?? 'Alguien tocó el timbre',
@@ -47,24 +43,8 @@ export async function POST(request: NextRequest) {
       data: {
         property_id: property.id,
       },
-    }
-
-    // 3. enviar push (CORRECTO)
-    if (property.notification_push) {
-      await firebaseAdmin.messaging().send({
-        topic: `user_${property.user_id}`,
-        notification: message.notification,
-        data: message.data,
-      })
-    }
-
-    return NextResponse.json({ ok: true })
-  } catch (err) {
-    console.error('RINGS ERROR:', err)
-
-    return NextResponse.json(
-      { error: 'Server error' },
-      { status: 500 }
-    )
+    })
   }
+
+  return NextResponse.json({ ok: true })
 }
