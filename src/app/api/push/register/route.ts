@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/server'
 
 export async function POST(req: NextRequest) {
+  console.log('HEADERS:', req.headers.get('authorization'))
+  console.log('BODY:', await req.clone().json())
   try {
     const { token } = await req.json()
 
