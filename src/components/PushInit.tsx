@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react'
 import { getToken } from 'firebase/messaging'
-import { getFirebaseMessaging } from '@/lib/firebase/firebase'
+import { messaging } from '@/lib/firebase/firebase'
 
 export default function PushInit() {
   useEffect(() => {
@@ -10,21 +10,8 @@ export default function PushInit() {
       try {
         console.log('🔥 PushInit mounted')
 
-        if (!('Notification' in window)) {
-          console.log('❌ Notification API missing')
-          return
-        }
-
-        if (!navigator.serviceWorker) {
-          console.log('❌ Service Worker unsupported')
-          return
-        }
-
-        const messaging =
-          await getFirebaseMessaging()
-
         if (!messaging) {
-          console.log('❌ Firebase messaging unsupported')
+          console.log('❌ Messaging unavailable')
           return
         }
 
@@ -33,10 +20,7 @@ export default function PushInit() {
 
         console.log('🔔 permission:', permission)
 
-        if (permission !== 'granted') {
-          console.log('❌ Permission denied')
-          return
-        }
+        if (permission !== 'granted') return
 
         const registration =
           await navigator.serviceWorker.register(
@@ -47,12 +31,14 @@ export default function PushInit() {
 
         const token = await getToken(messaging, {
           vapidKey:
-            process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
-
+            process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY!,
           serviceWorkerRegistration: registration,
         })
 
         console.log('📲 FCM TOKEN:', token)
+
+        // TODO:
+        // guardar token en Supabase
       } catch (err) {
         console.error('❌ PUSH ERROR:', err)
       }
