@@ -5,7 +5,7 @@ import { firebaseAdmin } from '@/lib/firebase-admin'
 
 const RingSchema = z.object({
   qr_code: z.string(),
-  visitor_category: z.enum(['delivery', 'guest', 'mail', 'emergency', 'other']),
+  visitor_category: z.enum(['delivery', 'guest', 'mail', 'emergency', 'other']).default('guest'),
   visitor_message: z.string().optional(),
 })
 
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
 
   const { data: property } = await supabase
     .from('properties')
-    .select('id, user_id, name, notification_push')
+    .select('id, user_id, name')
     .eq('qr_code', body.qr_code)
     .single()
 
@@ -24,18 +24,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  // 🔥 obtener token
-  const { data: tokens } = await supabase
+  const { data: tokensData } = await supabase
     .from('push_subscriptions')
     .select('fcm_token')
     .eq('user_id', property.user_id)
     .eq('is_active', true)
 
-  const fcmTokens = tokens?.map(t => t.fcm_token).filter(Boolean) ?? []
+  const tokens = tokensData?.map(t => t.fcm_token).filter(Boolean) ?? []
 
-  if (fcmTokens.length > 0) {
+  if (tokens.length > 0) {
     await firebaseAdmin.messaging().sendEachForMulticast({
-      tokens: fcmTokens,
+      tokens,
       notification: {
         title: `🔔 ${property.name}`,
         body: body.visitor_message ?? 'Alguien tocó el timbre',
