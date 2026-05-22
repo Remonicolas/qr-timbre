@@ -26,15 +26,26 @@ let nextConfig = {
       {
         source: '/(.*)',
         headers: [
-          { key: 'X-Frame-Options', value: 'DENY' },
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          {
+            key: 'X-Frame-Options',
+            value: 'DENY',
+          },
 
-          // IMPORTANTE:
-          // Safari iOS + PWA + Firebase Push
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+
+          {
+            key: 'Referrer-Policy',
+            value: 'strict-origin-when-cross-origin',
+          },
+
+          // iOS PWA + Firebase Notifications
           {
             key: 'Permissions-Policy',
-            value: 'camera=(), microphone=(), geolocation=(), notifications=(self)',
+            value:
+              'camera=(), microphone=(), geolocation=(), notifications=(self)',
           },
 
           {
@@ -44,7 +55,7 @@ let nextConfig = {
               "default-src 'self'",
 
               // Scripts
-              "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://js.stripe.com https://www.gstatic.com",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.gstatic.com",
 
               // Styles
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
@@ -55,13 +66,13 @@ let nextConfig = {
               // Images
               "img-src 'self' data: blob: https:",
 
-              // API / sockets / firebase / supabase
-              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://firebase.googleapis.com https://fcm.googleapis.com https://www.googleapis.com",
+              // API / Firebase / Supabase / Stripe
+              "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://firebase.googleapis.com https://fcm.googleapis.com https://fcmregistrations.googleapis.com https://firebaseinstallations.googleapis.com https://www.googleapis.com",
 
               // Frames
               "frame-src https://js.stripe.com",
 
-              // Workers / service workers
+              // Workers / Service Workers
               "worker-src 'self' blob: https://www.gstatic.com",
 
               // Manifest
@@ -70,7 +81,7 @@ let nextConfig = {
               // Media
               "media-src 'self' blob:",
 
-              // Object
+              // Disable object/embed
               "object-src 'none'",
             ].join('; '),
           },
@@ -101,7 +112,10 @@ let nextConfig = {
 
 // Sentry solo si está configurado
 try {
-  if (process.env.SENTRY_DSN || process.env.NEXT_PUBLIC_SENTRY_DSN) {
+  if (
+    process.env.SENTRY_DSN ||
+    process.env.NEXT_PUBLIC_SENTRY_DSN
+  ) {
     const { withSentryConfig } = require('@sentry/nextjs')
 
     nextConfig = withSentryConfig(nextConfig, {
