@@ -70,14 +70,41 @@ export async function POST(req: NextRequest) {
         const response =
           await firebaseAdmin.messaging().sendEachForMulticast({
             tokens,
+
             notification: {
               title: `🔔 ${property.name}`,
               body:
                 body.visitor_message ??
                 'Alguien tocó el timbre',
             },
+
+            webpush: {
+              headers: {
+                Urgency: 'high',
+              },
+
+              notification: {
+                title: `🔔 ${property.name}`,
+                body:
+                  body.visitor_message ??
+                  'Alguien tocó el timbre',
+
+                icon: '/icons/icon-192x192.png',
+                badge: '/icons/badge-72x72.png',
+
+                requireInteraction: true,
+
+                vibrate: [200, 100, 200],
+              },
+
+              fcmOptions: {
+                link: '/dashboard',
+              },
+            },
+
             data: {
               property_id: property.id,
+              click_action: '/dashboard',
             },
           })
 
