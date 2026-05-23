@@ -86,7 +86,7 @@ export default function RootLayout({
         <meta name="format-detection" content="telephone=no" />
       </head>
 
-      <body className="font-sans antialiased bg-background text-foreground">
+      <body className="pt-safe font-sans antialiased bg-background text-foreground">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
