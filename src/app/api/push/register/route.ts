@@ -6,18 +6,24 @@ export async function POST(req: NextRequest) {
     const { token } = await req.json()
 
     if (!token) {
-      return NextResponse.json({ error: 'Missing token' }, { status: 400 })
+      return NextResponse.json(
+        { error: 'Missing token' },
+        { status: 400 }
+      )
     }
 
     const authHeader = req.headers.get('authorization')
 
     if (!authHeader) {
-      return NextResponse.json({ error: 'No auth' }, { status: 401 })
+      return NextResponse.json(
+        { error: 'No auth' },
+        { status: 401 }
+      )
     }
 
     const jwt = authHeader.replace('Bearer ', '')
 
-    // 🔥 CLIENTE SOLO PARA VALIDAR JWT
+    // 🔥 cliente para validar JWT
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -36,10 +42,13 @@ export async function POST(req: NextRequest) {
     } = await supabase.auth.getUser()
 
     if (error || !user) {
-      return NextResponse.json({ error: 'Invalid user' }, { status: 401 })
+      return NextResponse.json(
+        { error: 'Invalid user' },
+        { status: 401 }
+      )
     }
 
-    // 🔥 ahora sí guardamos con admin client
+    // 🔥 admin client
     const admin = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -47,20 +56,34 @@ export async function POST(req: NextRequest) {
 
     const { error: dbError } = await admin
       .from('push_subscriptions')
-      .upsert({
-        user_id: user.id,
-        fcm_token: token,
-        is_active: true,
-      })
+      .upsert(
+        {
+          user_id: user.id,
+          fcm_token: token,
+          is_active: true,
+        },
+        {
+          onConflict: 'user_id,fcm_token',
+          ignoreDuplicates: true,
+        }
+      )
 
     if (dbError) {
-      console.error(dbError)
-      return NextResponse.json({ error: 'DB error' }, { status: 500 })
+      console.error('DB ERROR:', dbError)
+
+      return NextResponse.json(
+        { error: 'DB error' },
+        { status: 500 }
+      )
     }
 
     return NextResponse.json({ ok: true })
   } catch (e) {
     console.error('REGISTER ERROR:', e)
-    return NextResponse.json({ error: 'Server error' }, { status: 500 })
+
+    return NextResponse.json(
+      { error: 'Server error' },
+      { status: 500 }
+    )
   }
 }
