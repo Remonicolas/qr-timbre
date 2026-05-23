@@ -3,10 +3,7 @@ import { z } from 'zod'
 import { createClient } from '@/lib/supabase/server'
 
 const SubscriptionSchema = z.object({
-  endpoint: z.string().url(),
-  p256dh: z.string().min(1),
-  auth: z.string().min(1),
-  fcm_token: z.string().optional(),
+  fcm_token: z.string().min(1),
   device_name: z.string().max(100).optional(),
   browser: z.string().max(50).optional(),
 })
@@ -20,6 +17,7 @@ export async function POST(request: NextRequest) {
   }
 
   let body: z.infer<typeof SubscriptionSchema>
+
   try {
     const raw = await request.json() as unknown
     body = SubscriptionSchema.parse(raw)
@@ -27,25 +25,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Datos inválidos' }, { status: 400 })
   }
 
-  // Upsert subscription
   const { error } = await supabase
     .from('push_subscriptions')
     .upsert(
       {
         user_id: user.id,
-        endpoint: body.endpoint,
-        p256dh: body.p256dh,
-        auth: body.auth,
-        fcm_token: body.fcm_token ?? null,
+        fcm_token: body.fcm_token,
         device_name: body.device_name ?? null,
         browser: body.browser ?? null,
         is_active: true,
       },
-      { onConflict: 'user_id,endpoint' }
+      { onConflict: 'user_id,fcm_token' }
     )
 
   if (error) {
-    return NextResponse.json({ error: 'Error al guardar suscripción' }, { status: 500 })
+    return NextResponse.json(
+      { error: 'Error al guardar suscripción' },
+      { status: 500 }
+    )
   }
 
   return NextResponse.json({ data: { subscribed: true }, error: null })
@@ -59,13 +56,13 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
   }
 
-  const { endpoint } = await request.json() as { endpoint: string }
+  const { fcm_token } = await request.json() as { fcm_token: string }
 
   await supabase
     .from('push_subscriptions')
     .update({ is_active: false })
     .eq('user_id', user.id)
-    .eq('endpoint', endpoint)
+    .eq('fcm_token', fcm_token)
 
   return NextResponse.json({ data: { unsubscribed: true }, error: null })
 }

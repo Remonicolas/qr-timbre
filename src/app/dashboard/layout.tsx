@@ -3,7 +3,6 @@ import { createClient } from '@/lib/supabase/server'
 import { ROUTES } from '@/config/app'
 import { DashboardSidebar } from '@/components/dashboard/sidebar'
 import { DashboardHeader } from '@/components/dashboard/header'
-import { PushOnboardingBanner } from '@/components/shared/push-onboarding-banner'
 
 export default async function DashboardLayout({
   children,
@@ -11,7 +10,10 @@ export default async function DashboardLayout({
   children: React.ReactNode
 }) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
   if (!user) {
     redirect(ROUTES.login)
@@ -38,10 +40,11 @@ export default async function DashboardLayout({
       })
       .select()
       .single()
+
     profile = created
   }
 
-  // Fallback using auth data directly — never redirect
+  // Fallback using auth data directly
   const safeProfile = profile ?? {
     id: user.id,
     email: user.email ?? '',
@@ -61,16 +64,16 @@ export default async function DashboardLayout({
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <DashboardSidebar profile={safeProfile} />
+
       <div className="flex flex-1 flex-col overflow-hidden">
         <DashboardHeader profile={safeProfile} />
+
         <main className="flex-1 overflow-y-auto">
           <div className="container mx-auto max-w-7xl p-4 md:p-6 lg:p-8">
             {children}
           </div>
         </main>
       </div>
-      {/* Proactive push notification prompt for installed PWA */}
-      <PushOnboardingBanner />
     </div>
   )
 }

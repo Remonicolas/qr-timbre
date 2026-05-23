@@ -6,7 +6,7 @@
 
 import { motion, AnimatePresence } from 'framer-motion'
 import { Bell, BellOff, Loader2, Smartphone, Download, Settings } from 'lucide-react'
-import { usePushNotifications } from '@/hooks/use-push-notifications'
+import { useFirebasePush } from '@/hooks/use-firebase-push'
 import { cn } from '@/utils/cn'
 
 interface Props {
@@ -17,7 +17,7 @@ interface Props {
 }
 
 export function PushNotificationPrompt({ variant = 'card', onSubscribed }: Props) {
-  const { state, isIOS, isStandalone, subscribe, unsubscribe, errorMessage } = usePushNotifications()
+  const { state, isIOS, isStandalone, subscribe, unsubscribe, errorMessage } = useFirebasePush()
 
   const handleSubscribe = async () => {
     await subscribe()
