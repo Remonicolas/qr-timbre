@@ -1,12 +1,3 @@
-// ============================================================
-// QR BELL — Firebase Push Notifications Hook
-// Compatible con:
-// - iPhone PWA (iOS 16.4+)
-// - Android
-// - Desktop
-// Usa Firebase Cloud Messaging REAL
-// ============================================================
-
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
@@ -32,8 +23,7 @@ const firebaseConfig = {
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN!,
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!,
   storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!,
-  messagingSenderId:
-    process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID!,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID!,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID!,
 }
 
@@ -44,7 +34,6 @@ export function useFirebasePush() {
   // =========================================================
   // CHECK INITIAL STATE
   // =========================================================
-
   useEffect(() => {
     async function check() {
       try {
@@ -66,7 +55,8 @@ export function useFirebasePush() {
         }
 
         setState('idle')
-      } catch {
+      } catch (err) {
+        console.error(err)
         setState('unsupported')
       }
     }
@@ -77,8 +67,7 @@ export function useFirebasePush() {
   // =========================================================
   // SUBSCRIBE
   // =========================================================
-
-  const subscribe = useCallback(async () => {
+  const subscribe = useCallback(async (): Promise<PushState> => {
     try {
       setState('subscribing')
       setErrorMessage(null)
@@ -87,18 +76,18 @@ export function useFirebasePush() {
 
       if (!supported) {
         setState('unsupported')
-        return
+        return 'unsupported'
       }
 
-      // pedir permiso iOS
+      // pedir permiso
       const permission = await Notification.requestPermission()
 
       if (permission !== 'granted') {
         setState('denied')
-        return
+        return 'denied'
       }
 
-      // iniciar firebase
+      // firebase init
       const app =
         getApps().length > 0
           ? getApps()[0]!
@@ -113,10 +102,8 @@ export function useFirebasePush() {
 
       const messaging = getMessaging(app)
 
-      // obtener token REAL FCM
       const token = await getToken(messaging, {
-        vapidKey:
-          process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY!,
+        vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY!,
         serviceWorkerRegistration: registration,
       })
 
@@ -126,7 +113,7 @@ export function useFirebasePush() {
 
       console.log('🔥 FCM TOKEN:', token)
 
-      // guardar token en backend
+      // backend
       const res = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: {
@@ -159,21 +146,18 @@ export function useFirebasePush() {
       })
 
       setState('subscribed')
+      return 'subscribed'
     } catch (err) {
       console.error(err)
-
-      setErrorMessage(
-        'No se pudieron activar las notificaciones'
-      )
-
+      setErrorMessage('No se pudieron activar las notificaciones')
       setState('error')
+      return 'error'
     }
   }, [])
 
   // =========================================================
   // UNSUBSCRIBE
   // =========================================================
-
   const unsubscribe = useCallback(async () => {
     try {
       setState('idle')
