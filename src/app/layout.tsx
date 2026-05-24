@@ -6,7 +6,7 @@ import { ServiceWorkerRegistration } from '@/components/shared/service-worker-re
 import { PWAInstallBanner } from '@/components/shared/pwa-install-banner'
 import  PushInit  from '@/components/PushInit' // 👈 AGREGADO
 import { APP_CONFIG } from '@/config/app'
-import '@/src/styles/globals.css'
+import '@/styles/globals.css'
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_CONFIG.url),
