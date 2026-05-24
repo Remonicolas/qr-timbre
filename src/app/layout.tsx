@@ -6,7 +6,7 @@ import { ServiceWorkerRegistration } from '@/components/shared/service-worker-re
 import { PWAInstallBanner } from '@/components/shared/pwa-install-banner'
 import  PushInit  from '@/components/PushInit' // 👈 AGREGADO
 import { APP_CONFIG } from '@/config/app'
-import '@/styles/globals.css'
+import '@/src/styles/globals.css'
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_CONFIG.url),
@@ -98,7 +98,7 @@ export default function RootLayout({
             <Toaster position="top-right" richColors closeButton />
             <PWAInstallBanner />
             <ServiceWorkerRegistration />
-            <PushInit /> {/* 👈 AGREGADO ACÁ */}
+            {/* <PushInit /> */} {/* 👈 AGREGADO ACÁ */}
           </QueryProvider>
         </ThemeProvider>
       </body>
