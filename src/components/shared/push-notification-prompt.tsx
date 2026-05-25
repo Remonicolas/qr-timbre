@@ -2,13 +2,12 @@
 
 import { motion } from 'framer-motion'
 import { Bell, BellOff, Loader2, Smartphone, Settings } from 'lucide-react'
+import { useEffect } from 'react'
 import { useFirebasePush, PushState } from '@/hooks/use-firebase-push'
 import { cn } from '@/utils/cn'
 
 interface Props {
-  /** Show as a full card (settings page) or compact banner */
   variant?: 'card' | 'banner'
-  /** Called when user successfully subscribes */
   onSubscribed?: () => void
 }
 
@@ -25,13 +24,20 @@ export function PushNotificationPrompt({
     errorMessage,
   } = useFirebasePush()
 
-  // ✅ FIX: ahora sí recibe el estado real
-  const handleSubscribe = async () => {
-    const result: PushState = await subscribe()
-
-    if (result === 'subscribed') {
+  // =========================================================
+  // FIX: reacción automática cuando se suscribe
+  // =========================================================
+  useEffect(() => {
+    if (state === 'subscribed') {
       onSubscribed?.()
     }
+  }, [state, onSubscribed])
+
+  // =========================================================
+  // SUBSCRIBE HANDLER (YA NO DEPENDE DE RETURN)
+  // =========================================================
+  const handleSubscribe = async () => {
+    await subscribe()
   }
 
   // ── Loading ───────────────────────────────────────────────
@@ -43,29 +49,6 @@ export function PushNotificationPrompt({
         <div className="h-10 w-full bg-muted rounded-xl mt-4" />
       </div>
     ) : null
-  }
-
-  // ── iOS not installed ─────────────────────────────────────
-  if (isIOS && state === 'not_standalone') {
-    return (
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="rounded-2xl border bg-blue-500/10 p-5"
-      >
-        <div className="flex items-start gap-4">
-          <Smartphone size={20} className="text-primary" />
-          <div>
-            <p className="font-semibold text-sm">
-              Instalá la app para activar notificaciones
-            </p>
-            <p className="text-xs text-muted-foreground">
-              En iPhone primero tenés que instalarla en pantalla de inicio
-            </p>
-          </div>
-        </div>
-      </motion.div>
-    )
   }
 
   // ── Unsupported ───────────────────────────────────────────
@@ -147,7 +130,7 @@ export function PushNotificationPrompt({
     )
   }
 
-  // ── Idle / default ────────────────────────────────────────
+  // ── Idle / Default ────────────────────────────────────────
   return (
     <motion.div className="space-y-3">
       {isIOS && isStandalone && (

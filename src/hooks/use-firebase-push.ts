@@ -65,7 +65,7 @@ export function useFirebasePush() {
   }, [])
 
   // =========================================================
-  // SUBSCRIBE
+  // SUBSCRIBE (FIXED → RETURNS STATE)
   // =========================================================
   const subscribe = useCallback(async (): Promise<PushState> => {
     try {
@@ -79,7 +79,7 @@ export function useFirebasePush() {
         return 'unsupported'
       }
 
-      // pedir permiso
+      // ❗ pedir permiso navegador
       const permission = await Notification.requestPermission()
 
       if (permission !== 'granted') {
@@ -146,11 +146,14 @@ export function useFirebasePush() {
       })
 
       setState('subscribed')
+
       return 'subscribed'
     } catch (err) {
       console.error(err)
+
       setErrorMessage('No se pudieron activar las notificaciones')
       setState('error')
+
       return 'error'
     }
   }, [])
