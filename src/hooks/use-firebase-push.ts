@@ -1,13 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { initializeApp, getApps } from 'firebase/app'
-import {
-  getMessaging,
-  getToken,
-  isSupported,
-  onMessage,
-} from 'firebase/messaging'
 
 export type PushState =
   | 'loading'
@@ -18,133 +11,113 @@ export type PushState =
   | 'denied'
   | 'error'
 
-const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN!,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!,
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!,
-  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID!,
-  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID!,
-}
-
 export function useFirebasePush() {
   const [state, setState] = useState<PushState>('loading')
-  const [token, setToken] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  // =========================
-  // INIT CHECK
-  // =========================
+  // =========================================================
+  // CHECK STATE
+  // =========================================================
   useEffect(() => {
     async function check() {
-      const supported = await isSupported()
+      try {
+        if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+          setState('unsupported')
+          return
+        }
 
-      if (!supported) return setState('unsupported')
+        const permission = Notification.permission
 
-      if (Notification.permission === 'granted') {
-        return setState('subscribed')
+        if (permission === 'granted') {
+          setState('subscribed')
+          return
+        }
+
+        if (permission === 'denied') {
+          setState('denied')
+          return
+        }
+
+        setState('idle')
+      } catch (err) {
+        console.error(err)
+        setState('unsupported')
       }
-
-      if (Notification.permission === 'denied') {
-        return setState('denied')
-      }
-
-      setState('idle')
     }
 
     check()
   }, [])
 
-  // =========================
-  // SUBSCRIBE
-  // =========================
+  // =========================================================
+  // SUBSCRIBE (WEB PUSH REAL)
+  // =========================================================
   const subscribe = useCallback(async (): Promise<PushState> => {
     try {
       setState('subscribing')
       setErrorMessage(null)
 
-      const supported = await isSupported()
-      if (!supported) {
-        setState('unsupported')
-        return 'unsupported'
-      }
-
+      // 1. permiso
       const permission = await Notification.requestPermission()
+
       if (permission !== 'granted') {
         setState('denied')
         return 'denied'
       }
 
-      const app =
-        getApps().length > 0
-          ? getApps()[0]!
-          : initializeApp(firebaseConfig)
+      // 2. service worker
+      const registration = await navigator.serviceWorker.ready
 
-      const registration = await navigator.serviceWorker.register(
-        '/firebase-messaging-sw.js'
-      )
+      // 3. VAPID KEY desde backend
+      const vapidRes = await fetch('/api/push/vapid')
+      const { publicKey } = await vapidRes.json()
 
-      await navigator.serviceWorker.ready
-
-      const messaging = getMessaging(app)
-
-      const fcmToken = await getToken(messaging, {
-        vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY!,
-        serviceWorkerRegistration: registration,
+      // 4. subscribe push manager
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
       })
 
-      if (!fcmToken) throw new Error('No FCM token')
+      console.log('📲 SUBSCRIPTION:', subscription)
 
-      setToken(fcmToken)
-
-      await fetch('/api/push/subscribe', {
+      // 5. guardar en backend
+      const res = await fetch('/api/push/subscribe-topic', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
-          fcm_token: fcmToken,
-          device_name: navigator.platform,
-          browser: navigator.userAgent,
+          endpoint: subscription.endpoint,
+          keys: subscription.toJSON().keys,
+          user_agent: navigator.userAgent,
         }),
       })
 
-      onMessage(messaging, (payload) => {
-        if (payload.notification) {
-          new Notification(payload.notification.title ?? 'QR Bell', {
-            body: payload.notification.body,
-            icon: '/icons/icon-192x192.png',
-          })
-        }
-      })
+      if (!res.ok) throw new Error('Backend error')
 
       setState('subscribed')
       return 'subscribed'
-    } catch (e) {
-      console.error(e)
+    } catch (err) {
+      console.error(err)
       setErrorMessage('Error activando push')
       setState('error')
       return 'error'
     }
   }, [])
 
-  // =========================
-  // UNSUBSCRIBE (REAL SIMPLE)
-  // =========================
   const unsubscribe = useCallback(async () => {
     try {
-      if (token) {
-        await fetch('/api/push/unsubscribe', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fcm_token: token }),
-        })
+      const registration = await navigator.serviceWorker.ready
+      const subscription = await registration.pushManager.getSubscription()
+
+      if (subscription) {
+        await subscription.unsubscribe()
       }
 
-      setToken(null)
       setState('idle')
-    } catch (e) {
-      console.error(e)
+    } catch (err) {
+      console.error(err)
     }
-  }, [token])
+  }, [])
 
   return {
     state,
@@ -152,4 +125,23 @@ export function useFirebasePush() {
     unsubscribe,
     errorMessage,
   }
+}
+
+// =========================================================
+// HELPERS
+// =========================================================
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding)
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
+
+  const rawData = atob(base64)
+  const outputArray = new Uint8Array(rawData.length)
+
+  for (let i = 0; i < rawData.length; i++) {
+    outputArray[i] = rawData.charCodeAt(i)
+  }
+
+  return outputArray
 }

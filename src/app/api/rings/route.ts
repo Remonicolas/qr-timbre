@@ -1,202 +1,80 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { z } from 'zod'
-import { createAdminClient } from '@/lib/supabase/server'
-import { firebaseAdmin } from '@/lib/firebase-admin'
+import { createClient } from '@/lib/supabase/server'
+import * as webpush from 'web-push'
 
-const RingSchema = z.object({
-  qr_code: z.string(),
-  visitor_category: z
-    .enum(['delivery', 'guest', 'mail', 'emergency', 'other'])
-    .default('guest'),
-  visitor_message: z.string().optional(),
-})
+// =========================================================
+// VAPID CONFIG
+// =========================================================
+webpush.setVapidDetails(
+  process.env.VAPID_EMAIL!,
+  process.env.VAPID_PUBLIC_KEY!,
+  process.env.VAPID_PRIVATE_KEY!
+)
 
 export async function POST(req: NextRequest) {
   try {
-    const body = RingSchema.parse(await req.json())
-    const supabase = await createAdminClient()
+    const body = await req.json()
+    const supabase = await createClient()
 
     // =========================================================
-    // 🔍 1. GET PROPERTY
+    // GET PROPERTY
     // =========================================================
-    const { data: property, error: propertyError } = await supabase
+    const { data: property } = await supabase
       .from('properties')
       .select('id, user_id, name')
       .eq('qr_code', body.qr_code)
       .single()
 
-    if (propertyError || !property) {
-      return NextResponse.json(
-        { error: 'Property not found' },
-        { status: 404 }
-      )
+    if (!property) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
     // =========================================================
-    // 🔔 2. SAVE RING EVENT
+    // GET SUBSCRIPTIONS
     // =========================================================
-    const { error: ringError } = await supabase
-      .from('ring_events')
-      .insert({
-        property_id: property.id,
-        visitor_category: body.visitor_category,
-        visitor_message: body.visitor_message ?? null,
-        status: 'pending',
-      })
-
-    if (ringError) {
-      console.error('❌ RING EVENT ERROR:', ringError)
-
-      return NextResponse.json(
-        { error: 'Failed to create ring event' },
-        { status: 500 }
-      )
-    }
-
-    // =========================================================
-    // 📲 3. GET TOKENS
-    // =========================================================
-    const { data: tokensData } = await supabase
+    const { data: subs } = await supabase
       .from('push_subscriptions')
-      .select('fcm_token')
+      .select('endpoint, p256dh, auth')
       .eq('user_id', property.user_id)
       .eq('is_active', true)
 
-    const tokens =
-      (tokensData ?? [])
-        .map((t) => t.fcm_token)
-        .filter(Boolean)
-
-    console.log('📲 TOKENS COUNT:', tokens.length)
-
-    // =========================================================
-    // 🚀 4. SEND PUSH (FIXED IOS + PRODUCTION SAFE)
-    // =========================================================
-    if (tokens.length > 0) {
-      try {
-        const response = await firebaseAdmin
-          .messaging()
-          .sendEachForMulticast({
-            tokens,
-
-            // =====================================================
-            // 📢 DEFAULT NOTIFICATION
-            // =====================================================
-            notification: {
-              title: `🔔 ${property.name}`,
-              body:
-                body.visitor_message ??
-                'Alguien tocó el timbre',
-            },
-
-            // =====================================================
-            // 📦 DATA (NAVIGATION)
-            // =====================================================
-            data: {
-              property_id: property.id,
-              url: '/dashboard',
-              type: 'ring_event',
-              timestamp: String(Date.now()),
-            },
-
-            // =====================================================
-            // 🤖 ANDROID FIX
-            // =====================================================
-            android: {
-              priority: 'high',
-              notification: {
-                sound: 'default',
-                channelId: 'ring-events',
-              },
-            },
-
-            // =====================================================
-            // 🍎 IOS FIX REAL (CRÍTICO)
-            // =====================================================
-            apns: {
-              headers: {
-                'apns-push-type': 'alert',
-                'apns-priority': '10',
-              },
-              payload: {
-                aps: {
-                  alert: {
-                    title: `🔔 ${property.name}`,
-                    body:
-                      body.visitor_message ??
-                      'Alguien tocó el timbre',
-                  },
-                  sound: 'default',
-                  badge: 1,
-
-                  // 🔥 IMPORTANTE: iOS background wake
-                  'content-available': 1,
-                },
-              },
-            },
-
-            // =====================================================
-            // 🌐 WEB PUSH (SÓLO PARA DESKTOP / SW)
-            // =====================================================
-            webpush: {
-              headers: {
-                Urgency: 'high',
-              },
-              notification: {
-                title: `🔔 ${property.name}`,
-                body:
-                  body.visitor_message ??
-                  'Alguien tocó el timbre',
-                icon: '/icons/icon-192x192.png',
-                badge: '/icons/badge-72x72.png',
-                requireInteraction: true,
-                vibrate: [200, 100, 200],
-                tag: 'ring-event',
-              },
-              fcmOptions: {
-                link: '/dashboard',
-              },
-            },
-          })
-
-        console.log('✅ PUSH RESULT:', {
-          success: response.successCount,
-          failure: response.failureCount,
-        })
-
-        // =====================================================
-        // ❌ CLEAN INVALID TOKENS
-        // =====================================================
-        if (response.failureCount > 0) {
-          const failedTokens: string[] = []
-
-          response.responses.forEach((res, idx) => {
-            if (!res.success) {
-              failedTokens.push(tokens[idx])
-            }
-          })
-
-          console.log('❌ FAILED TOKENS:', failedTokens)
-
-          await supabase
-            .from('push_subscriptions')
-            .update({ is_active: false })
-            .in('fcm_token', failedTokens)
-        }
-      } catch (pushError) {
-        console.error('🔥 PUSH ERROR:', pushError)
-      }
+    if (!subs?.length) {
+      return NextResponse.json({ ok: true })
     }
 
     // =========================================================
-    // RESPONSE
+    // PUSH PAYLOAD (iOS + Android + Desktop)
     // =========================================================
+    const payload = JSON.stringify({
+      title: `🔔 ${property.name}`,
+      body: body.visitor_message ?? 'Alguien tocó el timbre',
+      url: '/dashboard',
+    })
+
+    // =========================================================
+    // SEND PUSH
+    // =========================================================
+    await Promise.allSettled(
+      subs.map((sub) =>
+        webpush.sendNotification(
+          {
+            endpoint: sub.endpoint,
+            keys: {
+              p256dh: sub.p256dh,
+              auth: sub.auth,
+            },
+          },
+          payload
+        )
+      )
+    )
+
     return NextResponse.json({ ok: true })
   } catch (err) {
-    console.error('❌ RINGS API ERROR:', err)
+    console.error('RINGS ERROR:', err)
 
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Server error' },
       { status: 500 }
     )
   }

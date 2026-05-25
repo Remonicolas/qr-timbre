@@ -92,3 +92,45 @@ self.addEventListener('message', (event) => {
     self.skipWaiting();
   }
 });
+self.addEventListener('push', function (event) {
+  const data = event.data ? event.data.json() : {}
+
+  const title = data.title || 'QR Bell 🔔'
+
+  const options = {
+    body: data.body || 'Notificación',
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-192x192.png',
+
+    data: {
+      url: data.url || '/dashboard',
+    },
+
+    tag: data.tag || 'qrbell',
+    vibrate: data.vibrate || [200, 100, 200],
+    requireInteraction: true,
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(title, options)
+  )
+})
+self.addEventListener('notificationclick', function (event) {
+  event.notification.close()
+
+  const url = event.notification.data?.url || '/'
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window' }).then((clientsArr) => {
+      for (const client of clientsArr) {
+        if (client.url.includes(url) && 'focus' in client) {
+          return client.focus()
+        }
+      }
+
+      if (clients.openWindow) {
+        return clients.openWindow(url)
+      }
+    })
+  )
+})
