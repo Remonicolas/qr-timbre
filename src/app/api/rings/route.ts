@@ -14,19 +14,18 @@ const RingSchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     const body = RingSchema.parse(await req.json())
-
     const supabase = await createAdminClient()
 
     // =========================================================
-    // 🔍 BUSCAR PROPIEDAD
+    // 🔍 1. GET PROPERTY
     // =========================================================
-    const { data: property } = await supabase
+    const { data: property, error: propertyError } = await supabase
       .from('properties')
       .select('id, user_id, name')
       .eq('qr_code', body.qr_code)
       .single()
 
-    if (!property) {
+    if (propertyError || !property) {
       return NextResponse.json(
         { error: 'Property not found' },
         { status: 404 }
@@ -34,7 +33,7 @@ export async function POST(req: NextRequest) {
     }
 
     // =========================================================
-    // 🔔 GUARDAR EVENTO TIMBRE
+    // 🔔 2. SAVE RING EVENT
     // =========================================================
     const { error: ringError } = await supabase
       .from('ring_events')
@@ -46,7 +45,7 @@ export async function POST(req: NextRequest) {
       })
 
     if (ringError) {
-      console.error('RING EVENT ERROR:', ringError)
+      console.error('❌ RING EVENT ERROR:', ringError)
 
       return NextResponse.json(
         { error: 'Failed to create ring event' },
@@ -55,7 +54,7 @@ export async function POST(req: NextRequest) {
     }
 
     // =========================================================
-    // 📲 OBTENER TOKENS FCM
+    // 📲 3. GET ACTIVE TOKENS
     // =========================================================
     const { data: tokensData } = await supabase
       .from('push_subscriptions')
@@ -64,73 +63,131 @@ export async function POST(req: NextRequest) {
       .eq('is_active', true)
 
     const tokens =
-      tokensData
-        ?.map((t) => t.fcm_token)
-        .filter(Boolean) ?? []
+      (tokensData ?? [])
+        .map((t) => t.fcm_token)
+        .filter(Boolean)
 
-    console.log('📲 TOKENS:', tokens)
+    console.log('📲 TOKENS COUNT:', tokens.length)
 
     // =========================================================
-    // 🔥 ENVIAR PUSH (FIX iOS + ANDROID + WEB)
+    // 🚀 4. SEND PUSH (PRODUCTION SAFE)
     // =========================================================
-    try {
-      if (tokens.length > 0) {
-        const response =
-          await firebaseAdmin.messaging().sendEachForMulticast({
-            tokens,
+    if (tokens.length > 0) {
+      try {
+        const message = {
+          tokens,
 
-            // ===================================================
-            // 📢 NOTIFICACIÓN PRINCIPAL (IMPORTANTE PARA IOS)
-            // ===================================================
+          // =====================================================
+          // 📢 MAIN NOTIFICATION (ALL DEVICES)
+          // =====================================================
+          notification: {
+            title: `🔔 ${property.name}`,
+            body:
+              body.visitor_message ??
+              'Alguien tocó el timbre',
+          },
+
+          // =====================================================
+          // 📦 DATA PAYLOAD (FOR NAVIGATION)
+          // =====================================================
+          data: {
+            property_id: property.id,
+            url: '/dashboard',
+            type: 'ring_event',
+            timestamp: Date.now().toString(),
+          },
+
+          // =====================================================
+          // 🤖 ANDROID (HIGH PRIORITY PUSH)
+          // =====================================================
+          android: {
+            priority: 'high',
+            notification: {
+              sound: 'default',
+              channelId: 'ring-events',
+            },
+          },
+
+          // =====================================================
+          // 🍎 iOS (APNs - CRITICAL FIX)
+          // =====================================================
+          apns: {
+            headers: {
+              'apns-priority': '10',
+              'apns-push-type': 'alert',
+            },
+            payload: {
+              aps: {
+                alert: {
+                  title: `🔔 ${property.name}`,
+                  body:
+                    body.visitor_message ??
+                    'Alguien tocó el timbre',
+                },
+                sound: 'default',
+                badge: 1,
+
+                // 🔥 esto mantiene app viva en background
+                'content-available': 1,
+              },
+            },
+          },
+
+          // =====================================================
+          // 🌐 WEB PUSH (SW CONTROL)
+          // =====================================================
+          webpush: {
+            headers: {
+              Urgency: 'high',
+            },
             notification: {
               title: `🔔 ${property.name}`,
               body:
                 body.visitor_message ??
                 'Alguien tocó el timbre',
+              icon: '/icons/icon-192x192.png',
+              badge: '/icons/badge-72x72.png',
+              requireInteraction: true,
+              vibrate: [200, 100, 200],
+              tag: 'ring-event',
             },
+            fcmOptions: {
+              link: '/dashboard',
+            },
+          },
+        }
 
-            // ===================================================
-            // 📦 DATA PAYLOAD
-            // ===================================================
-            data: {
-              property_id: property.id,
-              url: '/dashboard',
-            },
+        const response =
+          await firebaseAdmin.messaging().sendEachForMulticast(message)
 
-            // ===================================================
-            // 📱 ANDROID HIGH PRIORITY
-            // ===================================================
-            android: {
-              priority: 'high',
-            },
+        console.log('✅ PUSH SENT:', {
+          success: response.successCount,
+          failure: response.failureCount,
+        })
 
-            // ===================================================
-            // 🍎 iOS APNs (ESTO ES LO CRÍTICO QUE TE FALTABA)
-            // ===================================================
-            apns: {
-              headers: {
-                'apns-priority': '10',
-              },
-              payload: {
-                aps: {
-                  alert: {
-                    title: `🔔 ${property.name}`,
-                    body:
-                      body.visitor_message ??
-                      'Alguien tocó el timbre',
-                  },
-                  sound: 'default',
-                  badge: 1,
-                  contentAvailable: true,
-                },
-              },
-            },
+        // =====================================================
+        // ❌ HANDLE FAILED TOKENS (PRODUCTION CLEANUP)
+        // =====================================================
+        if (response.failureCount > 0) {
+          const failedTokens: string[] = []
+
+          response.responses.forEach((res, idx) => {
+            if (!res.success) {
+              failedTokens.push(tokens[idx])
+            }
           })
 
-        console.log('✅ FCM RESPONSE:', response)
+          console.log('❌ FAILED TOKENS:', failedTokens)
+
+          // desactivar tokens inválidos
+          await supabase
+            .from('push_subscriptions')
+            .update({ is_active: false })
+            .in('fcm_token', failedTokens)
+        }
+      } catch (pushError) {
+        console.error('🔥 PUSH ERROR:', pushError)
       }
-    } catch (fcmError) {
-      console.error('🔥 FCM ERROR:', fcmError)
     }
 
     // =========================================================
