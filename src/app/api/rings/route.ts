@@ -47,8 +47,26 @@ export async function POST(req: NextRequest) {
     // =========================================================
     const payload = JSON.stringify({
       title: `🔔 ${property.name}`,
-      body: body.visitor_message ?? 'Alguien tocó el timbre',
+
+      body:
+        body.visitor_message ??
+        'Alguien tocó el timbre',
+
+      icon: '/icons/icon-192x192.png',
+
+      badge: '/icons/icon-192x192.png',
+
+      tag: 'ring-event',
+
       url: '/dashboard',
+
+      vibrate: [200, 100, 200],
+
+      requireInteraction: true,
+
+      silent: false,
+
+      renotify: true,
     })
 
     // =========================================================
