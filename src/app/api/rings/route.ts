@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import * as webpush from 'web-push'
+import { sendWhatsAppMessage } from '@/lib/whatsapp'
 
 // =========================================================
 // VAPID CONFIG
@@ -14,6 +15,7 @@ webpush.setVapidDetails(
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
+
     const supabase = await createClient()
 
     // =========================================================
@@ -26,7 +28,10 @@ export async function POST(req: NextRequest) {
       .single()
 
     if (!property) {
-      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      return NextResponse.json(
+        { error: 'Not found' },
+        { status: 404 }
+      )
     }
 
     // =========================================================
@@ -38,12 +43,8 @@ export async function POST(req: NextRequest) {
       .eq('user_id', property.user_id)
       .eq('is_active', true)
 
-    if (!subs?.length) {
-      return NextResponse.json({ ok: true })
-    }
-
     // =========================================================
-    // PUSH PAYLOAD (iOS + Android + Desktop)
+    // PUSH PAYLOAD
     // =========================================================
     const payload = JSON.stringify({
       title: `🔔 ${property.name}`,
@@ -70,32 +71,55 @@ export async function POST(req: NextRequest) {
     })
 
     // =========================================================
-    // SEND PUSH
+    // SEND WEB PUSH
     // =========================================================
-    await Promise.allSettled(
-      subs.map((sub) =>
-        webpush.sendNotification(
-          {
-            endpoint: sub.endpoint,
-            keys: {
-              p256dh: sub.p256dh,
-              auth: sub.auth,
+    if (subs?.length) {
+      await Promise.allSettled(
+        subs.map((sub) =>
+          webpush.sendNotification(
+            {
+              endpoint: sub.endpoint,
+              keys: {
+                p256dh: sub.p256dh,
+                auth: sub.auth,
+              },
             },
-          },
-          payload,
-          {
-            TTL: 2419200,
-            urgency: 'high',
-            topic: 'ring-event',
-            headers: {
-              Topic: 'ring-event',
-            },
-          }
+            payload,
+            {
+              TTL: 2419200,
+              urgency: 'high',
+              topic: 'ring-event',
+              headers: {
+                Topic: 'ring-event',
+              },
+            }
+          )
         )
       )
-    )
+    }
 
-    return NextResponse.json({ ok: true })
+    // =========================================================
+    // GET USER WHATSAPP
+    // =========================================================
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('whatsapp_number')
+      .eq('id', property.user_id)
+      .single()
+
+    // =========================================================
+    // SEND WHATSAPP
+    // =========================================================
+    if (profile?.whatsapp_number) {
+      await sendWhatsAppMessage(
+        profile.whatsapp_number,
+        `🔔 Alguien tocó el timbre en ${property.name}`
+      )
+    }
+
+    return NextResponse.json({
+      ok: true,
+    })
   } catch (err) {
     console.error('RINGS ERROR:', err)
 
