@@ -4,30 +4,26 @@ export async function sendWhatsAppMessage(
 ) {
   try {
     const response = await fetch(
-      `https://graph.facebook.com/v25.0/${process.env.WHATSAPP_PHONE_NUMBER_ID}/messages`,
+      `${process.env.WATI_API_URL}/api/v1/sendSessionMessage`,
       {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${process.env.WHATSAPP_TOKEN}`,
+          Authorization: `Bearer ${process.env.WATI_TOKEN}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          messaging_product: 'whatsapp',
-          to,
-          type: 'text',
-          text: {
-            body: message,
-          },
+          phone: to,
+          message,
         }),
       }
     )
 
     const data = await response.json()
 
-    console.log('📲 WHATSAPP RESPONSE:', data)
+    console.log('📲 WATI RESPONSE:', data)
 
     return data
   } catch (err) {
-    console.error('❌ WHATSAPP ERROR:', err)
+    console.error('❌ WATI ERROR:', err)
   }
 }
