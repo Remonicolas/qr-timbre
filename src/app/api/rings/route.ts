@@ -84,9 +84,12 @@ export async function POST(req: NextRequest) {
           },
           payload,
           {
-            TTL: 60,
+            TTL: 2419200,
             urgency: 'high',
             topic: 'ring-event',
+            headers: {
+              Topic: 'ring-event',
+            },
           }
         )
       )
