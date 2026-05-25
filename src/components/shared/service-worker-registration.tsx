@@ -6,26 +6,26 @@ export function ServiceWorkerRegistration() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return
 
-    const registerServiceWorker = async () => {
+    const register = async () => {
       try {
         const registration =
           await navigator.serviceWorker.register(
-            '/firebase-messaging-sw.js'
+            '/service-worker.js'
           )
 
         console.log(
-          '✅ Firebase Service Worker registrado:',
+          '✅ Service Worker registrado:',
           registration.scope
         )
-      } catch (error) {
+      } catch (err) {
         console.error(
-          '❌ Error registrando Service Worker:',
-          error
+          '❌ Error SW:',
+          err
         )
       }
     }
 
-    registerServiceWorker()
+    register()
   }, [])
 
   return null
