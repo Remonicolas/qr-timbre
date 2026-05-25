@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion'
 import { Bell, BellOff, Loader2, Smartphone, Settings } from 'lucide-react'
 import { useEffect } from 'react'
-import { useFirebasePush, PushState } from '@/hooks/use-firebase-push'
+import { useFirebasePush } from '@/hooks/use-firebase-push'
 import { cn } from '@/utils/cn'
 
 interface Props {
@@ -25,7 +25,7 @@ export function PushNotificationPrompt({
   } = useFirebasePush()
 
   // =========================================================
-  // FIX: reacción automática cuando se suscribe
+  // AUTO CALLBACK cuando se subscribe
   // =========================================================
   useEffect(() => {
     if (state === 'subscribed') {
@@ -34,9 +34,10 @@ export function PushNotificationPrompt({
   }, [state, onSubscribed])
 
   // =========================================================
-  // SUBSCRIBE HANDLER (YA NO DEPENDE DE RETURN)
+  // SUBSCRIBE HANDLER
   // =========================================================
   const handleSubscribe = async () => {
+    console.log('🔥 handleSubscribe ejecutado')
     await subscribe()
   }
 
@@ -139,8 +140,12 @@ export function PushNotificationPrompt({
         </div>
       )}
 
+      {/* 🔥 BOTÓN CON DEBUG */}
       <button
-        onClick={handleSubscribe}
+        onClick={() => {
+          console.log('🔥 BUTTON CLICKED')
+          handleSubscribe()
+        }}
         disabled={state === 'subscribing'}
         className={cn(
           'w-full flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-bold',

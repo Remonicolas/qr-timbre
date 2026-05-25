@@ -29,71 +29,57 @@ const firebaseConfig = {
 
 export function useFirebasePush() {
   const [state, setState] = useState<PushState>('loading')
+  const [token, setToken] = useState<string | null>(null)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  // =========================================================
-  // CHECK INITIAL STATE
-  // =========================================================
+  // =========================
+  // INIT CHECK
+  // =========================
   useEffect(() => {
     async function check() {
-      try {
-        const supported = await isSupported()
+      const supported = await isSupported()
 
-        if (!supported) {
-          setState('unsupported')
-          return
-        }
+      if (!supported) return setState('unsupported')
 
-        if (Notification.permission === 'granted') {
-          setState('subscribed')
-          return
-        }
-
-        if (Notification.permission === 'denied') {
-          setState('denied')
-          return
-        }
-
-        setState('idle')
-      } catch (err) {
-        console.error(err)
-        setState('unsupported')
+      if (Notification.permission === 'granted') {
+        return setState('subscribed')
       }
+
+      if (Notification.permission === 'denied') {
+        return setState('denied')
+      }
+
+      setState('idle')
     }
 
     check()
   }, [])
 
-  // =========================================================
-  // SUBSCRIBE (FIXED → RETURNS STATE)
-  // =========================================================
+  // =========================
+  // SUBSCRIBE
+  // =========================
   const subscribe = useCallback(async (): Promise<PushState> => {
     try {
       setState('subscribing')
       setErrorMessage(null)
 
       const supported = await isSupported()
-
       if (!supported) {
         setState('unsupported')
         return 'unsupported'
       }
 
-      // ❗ pedir permiso navegador
       const permission = await Notification.requestPermission()
-
       if (permission !== 'granted') {
         setState('denied')
         return 'denied'
       }
 
-      // firebase init
       const app =
         getApps().length > 0
           ? getApps()[0]!
           : initializeApp(firebaseConfig)
 
-      // service worker
       const registration = await navigator.serviceWorker.register(
         '/firebase-messaging-sw.js'
       )
@@ -102,72 +88,63 @@ export function useFirebasePush() {
 
       const messaging = getMessaging(app)
 
-      const token = await getToken(messaging, {
+      const fcmToken = await getToken(messaging, {
         vapidKey: process.env.NEXT_PUBLIC_FIREBASE_VAPID_KEY!,
         serviceWorkerRegistration: registration,
       })
 
-      if (!token) {
-        throw new Error('No FCM token')
-      }
+      if (!fcmToken) throw new Error('No FCM token')
 
-      console.log('🔥 FCM TOKEN:', token)
+      setToken(fcmToken)
 
-      // backend
-      const res = await fetch('/api/push/subscribe', {
+      await fetch('/api/push/subscribe', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          fcm_token: token,
+          fcm_token: fcmToken,
           device_name: navigator.platform,
           browser: navigator.userAgent,
         }),
       })
 
-      if (!res.ok) {
-        throw new Error('Backend error')
-      }
-
-      // foreground notifications
       onMessage(messaging, (payload) => {
-        console.log('📩 FOREGROUND PUSH:', payload)
-
         if (payload.notification) {
-          new Notification(
-            payload.notification.title ?? 'QR Bell',
-            {
-              body: payload.notification.body,
-              icon: '/icons/icon-192x192.png',
-            }
-          )
+          new Notification(payload.notification.title ?? 'QR Bell', {
+            body: payload.notification.body,
+            icon: '/icons/icon-192x192.png',
+          })
         }
       })
 
       setState('subscribed')
-
       return 'subscribed'
-    } catch (err) {
-      console.error(err)
-
-      setErrorMessage('No se pudieron activar las notificaciones')
+    } catch (e) {
+      console.error(e)
+      setErrorMessage('Error activando push')
       setState('error')
-
       return 'error'
     }
   }, [])
 
-  // =========================================================
-  // UNSUBSCRIBE
-  // =========================================================
+  // =========================
+  // UNSUBSCRIBE (REAL SIMPLE)
+  // =========================
   const unsubscribe = useCallback(async () => {
     try {
+      if (token) {
+        await fetch('/api/push/unsubscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fcm_token: token }),
+        })
+      }
+
+      setToken(null)
       setState('idle')
-    } catch (err) {
-      console.error(err)
+    } catch (e) {
+      console.error(e)
     }
-  }, [])
+  }, [token])
 
   return {
     state,
