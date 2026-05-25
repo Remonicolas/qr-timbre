@@ -64,7 +64,12 @@ export async function POST(req: NextRequest) {
               auth: sub.auth,
             },
           },
-          payload
+          payload,
+          {
+            TTL: 60,
+            urgency: 'high',
+            topic: 'ring-event',
+          }
         )
       )
     )
