@@ -17,7 +17,9 @@ export async function POST(req: NextRequest) {
 
     const supabase = await createAdminClient()
 
-    // 🔍 buscar propiedad
+    // =========================================================
+    // 🔍 BUSCAR PROPIEDAD
+    // =========================================================
     const { data: property } = await supabase
       .from('properties')
       .select('id, user_id, name')
@@ -31,7 +33,9 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 🔔 guardar evento del timbre
+    // =========================================================
+    // 🔔 GUARDAR EVENTO TIMBRE
+    // =========================================================
     const { error: ringError } = await supabase
       .from('ring_events')
       .insert({
@@ -50,7 +54,9 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // 📲 obtener tokens FCM
+    // =========================================================
+    // 📲 OBTENER TOKENS FCM
+    // =========================================================
     const { data: tokensData } = await supabase
       .from('push_subscriptions')
       .select('fcm_token')
@@ -64,13 +70,18 @@ export async function POST(req: NextRequest) {
 
     console.log('📲 TOKENS:', tokens)
 
-    // 🔥 enviar push SIN romper endpoint
+    // =========================================================
+    // 🔥 ENVIAR PUSH (FIX iOS + ANDROID + WEB)
+    // =========================================================
     try {
       if (tokens.length > 0) {
         const response =
           await firebaseAdmin.messaging().sendEachForMulticast({
             tokens,
 
+            // ===================================================
+            // 📢 NOTIFICACIÓN PRINCIPAL (IMPORTANTE PARA IOS)
+            // ===================================================
             notification: {
               title: `🔔 ${property.name}`,
               body:
@@ -78,33 +89,41 @@ export async function POST(req: NextRequest) {
                 'Alguien tocó el timbre',
             },
 
-            webpush: {
-              headers: {
-                Urgency: 'high',
-              },
-
-              notification: {
-                title: `🔔 ${property.name}`,
-                body:
-                  body.visitor_message ??
-                  'Alguien tocó el timbre',
-
-                icon: '/icons/icon-192x192.png',
-                badge: '/icons/badge-72x72.png',
-
-                requireInteraction: true,
-
-                vibrate: [200, 100, 200],
-              },
-
-              fcmOptions: {
-                link: '/dashboard',
-              },
-            },
-
+            // ===================================================
+            // 📦 DATA PAYLOAD
+            // ===================================================
             data: {
               property_id: property.id,
-              click_action: '/dashboard',
+              url: '/dashboard',
+            },
+
+            // ===================================================
+            // 📱 ANDROID HIGH PRIORITY
+            // ===================================================
+            android: {
+              priority: 'high',
+            },
+
+            // ===================================================
+            // 🍎 iOS APNs (ESTO ES LO CRÍTICO QUE TE FALTABA)
+            // ===================================================
+            apns: {
+              headers: {
+                'apns-priority': '10',
+              },
+              payload: {
+                aps: {
+                  alert: {
+                    title: `🔔 ${property.name}`,
+                    body:
+                      body.visitor_message ??
+                      'Alguien tocó el timbre',
+                  },
+                  sound: 'default',
+                  badge: 1,
+                  contentAvailable: true,
+                },
+              },
             },
           })
 
@@ -114,6 +133,9 @@ export async function POST(req: NextRequest) {
       console.error('🔥 FCM ERROR:', fcmError)
     }
 
+    // =========================================================
+    // RESPONSE
+    // =========================================================
     return NextResponse.json({
       ok: true,
     })
